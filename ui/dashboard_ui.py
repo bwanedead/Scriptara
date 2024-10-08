@@ -2,11 +2,12 @@
 
 import os
 from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QFrame
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QFrame, QRadioButton, QButtonGroup, QCheckBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QColor
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
 class CheckableComboBox(QComboBox):
@@ -133,24 +134,28 @@ class DashboardWindow(QMainWindow):
         self.controller = controller
         # Dictionary to keep track of line objects for highlighting
         self.line_objects = {}
+        # Variables for panning
+        self.panning = False
+        self.pan_start = None
         self.init_ui()
     
     def init_ui(self):
         self.setWindowTitle('Frequency Curves Dashboard')
         self.setGeometry(150, 150, 1000, 600)
-    
+
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-    
+
         # Main layout is horizontal to have a sidebar and chart area
         main_layout = QHBoxLayout(central_widget)
-    
+
         # Left sidebar for controls
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(5, 5, 5, 5)
         sidebar_layout.setSpacing(10)
-    
+        self.sidebar_layout = sidebar_layout  # Store as an instance attribute
+
         # Initialize the custom checkable combo box
         self.combo_box = CheckableComboBox()
         # Add special items ("Select All" and "Deselect All")
@@ -160,35 +165,90 @@ class DashboardWindow(QMainWindow):
         for file in self.file_list:
             basename = os.path.basename(file)
             self.combo_box.addItem(basename, data=file)
-    
+
         # Connect signals
         self.combo_box.selection_changed.connect(self.update_plot)
         self.combo_box.view().entered.connect(self.on_combo_hover)
-    
+
         # Add widgets to the sidebar
         sidebar_layout.addWidget(QLabel("Select Files:"))
         sidebar_layout.addWidget(self.combo_box)
+
+        # Visualization Type Selection
+        vis_layout = QVBoxLayout()
+        vis_layout.addWidget(QLabel("Visualization Type:"))
+
+        # Create the radio buttons for selecting the visualization type
+        self.radio_loglog = QRadioButton("Frequency")
+        self.radio_percentage = QRadioButton("Percentage Frequency")
+        self.radio_zscore = QRadioButton("Z-Score")
+        self.radio_loglog.setChecked(True)  # Set Frequency as the default view
+
+        # Button group to manage radio buttons
+        self.vis_group = QButtonGroup()
+        self.vis_group.addButton(self.radio_loglog)
+        self.vis_group.addButton(self.radio_percentage)
+        self.vis_group.addButton(self.radio_zscore)
+
+        # Connect radio buttons to the update_plot method
+        self.radio_loglog.toggled.connect(self.update_plot)
+        self.radio_percentage.toggled.connect(self.update_plot)
+        self.radio_zscore.toggled.connect(self.update_plot)
+
+        # Add the radio buttons to the visualization layout
+        vis_layout.addWidget(self.radio_loglog)
+        vis_layout.addWidget(self.radio_percentage)
+        vis_layout.addWidget(self.radio_zscore)
+
+        # Axis Scaling Options
+        vis_layout.addWidget(QLabel("Axis Scaling:"))
+        self.checkbox_log_x = QCheckBox("Logarithmic X-Axis")
+        self.checkbox_log_y = QCheckBox("Logarithmic Y-Axis")
+        self.checkbox_log_x.setChecked(False)
+        self.checkbox_log_y.setChecked(False)
+
+        # Connect checkboxes to the update_plot method
+        self.checkbox_log_x.stateChanged.connect(self.update_plot)
+        self.checkbox_log_y.stateChanged.connect(self.update_plot)
+
+        vis_layout.addWidget(self.checkbox_log_x)
+        vis_layout.addWidget(self.checkbox_log_y)
+
+        # Add visualization layout to the sidebar
+        sidebar_layout.addLayout(vis_layout)
+
         sidebar_layout.addStretch()  # Push everything up
-    
+
         # Add a frame to the sidebar for styling (optional)
         sidebar_frame = QFrame()
         sidebar_frame.setLayout(sidebar_layout)
         sidebar_frame.setFrameShape(QFrame.StyledPanel)
-        sidebar_frame.setFixedWidth(350)  # Set the width of the sidebar
-    
+        sidebar_frame.setFixedWidth(250)  # Set the width of the sidebar
+
         # Chart area
         chart_layout = QVBoxLayout()
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
+
+        # Add the Matplotlib navigation toolbar
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        chart_layout.addWidget(self.toolbar)
+
         chart_layout.addWidget(self.canvas)
-    
+
+        # Connect event handlers for panning and zooming
+        self.canvas.mpl_connect('button_press_event', self.on_mouse_press)
+        self.canvas.mpl_connect('button_release_event', self.on_mouse_release)
+        self.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+        self.canvas.mpl_connect('scroll_event', self.on_scroll)
+
         # Add layouts to the main layout
         main_layout.addWidget(sidebar_frame)
         main_layout.addLayout(chart_layout)
-    
+
         # Initial plot
         self.update_plot()
-    
+
     def update_plot(self):
         # Get the list of selected files
         selected_files = []
@@ -198,57 +258,159 @@ class DashboardWindow(QMainWindow):
                 # Retrieve the full file path from self.file_list
                 file = self.file_list[index - 2]  # Adjust index because of special items
                 selected_files.append(file)
-    
+
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         ax.set_xlabel('Rank')
-        ax.set_ylabel('Frequency')
         ax.set_title('Word Frequency Curves')
-    
+
         # Clear previous line references
         self.line_objects.clear()
-    
+
         for file in selected_files:
-            frequencies = self.controller.word_frequencies.get(file, [])
-            if frequencies:
-                ranks = range(1, len(frequencies) + 1)
-                basename = os.path.basename(file)
-                color = self.combo_box.colors.get(basename, None)
-                if color:
-                    # Convert QColor to RGB tuple
-                    rgb = color.getRgbF()
-                    line_color = (rgb[0], rgb[1], rgb[2])
-                    # Plot the line with the assigned color
-                    line, = ax.plot(ranks, frequencies, label=basename, color=line_color)
-                else:
-                    # Default color if not found
-                    line, = ax.plot(ranks, frequencies, label=basename)
-                # Store the line object for highlighting
+            basename = os.path.basename(file)
+            color = self.combo_box.colors.get(basename, None)
+            line_color = None
+            if color:
+                rgb = color.getRgbF()
+                line_color = (rgb[0], rgb[1], rgb[2])
+
+            # Get the appropriate data based on the selected visualization
+            if self.radio_loglog.isChecked():
+                y_data = self.controller.word_frequencies.get(file, [])
+                y_label = 'Frequency'
+            elif self.radio_percentage.isChecked():
+                y_data = self.controller.percentage_frequencies.get(file, [])
+                y_label = 'Percentage Frequency'
+            elif self.radio_zscore.isChecked():
+                y_data = self.controller.z_scores.get(file, [])
+                y_label = 'Z-Score'
+            else:
+                continue  # No valid option selected
+
+            if y_data:
+                ranks = range(1, len(y_data) + 1)
+                line, = ax.plot(ranks, y_data, label=basename, color=line_color)
                 self.line_objects[basename] = line
-    
-        # Remove the legend to prevent clutter
-        # if selected_files:
-        #     ax.legend()
+
+        # Set axis labels
+        ax.set_ylabel(y_label)
+
+        # Apply axis scaling based on checkbox states
+        if self.checkbox_log_x.isChecked():
+            ax.set_xscale('log')
+        else:
+            ax.set_xscale('linear')
+
+        if self.checkbox_log_y.isChecked():
+            ax.set_yscale('log')
+        else:
+            ax.set_yscale('linear')
+
+        # Add grid lines for better readability
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+        # Remove legend to prevent clutter (optional)
+        # ax.legend()
+
+        # Display a message if no files are selected
         if not selected_files:
             ax.text(0.5, 0.5, 'No files selected', transform=ax.transAxes,
                     ha='center', va='center')
-    
-        ax.set_yscale('log')  # Use logarithmic scale for better visualization
-        ax.set_xscale('log')
-    
+
+        # Redraw the canvas
         self.canvas.draw()
-    
-    def on_combo_hover(self, index):
-        # Get the item that is being hovered over
-        item = self.combo_box.model().itemFromIndex(index)
-        file_name = item.text()
-        self.highlight_line(file_name)
-    
-    def highlight_line(self, file_name):
-        # Reset all lines to normal width
-        for line in self.line_objects.values():
-            line.set_linewidth(1)
-        # Highlight the selected line
-        if file_name in self.line_objects:
-            self.line_objects[file_name].set_linewidth(3)
+
+    # Event handlers for panning and zooming
+    def on_mouse_press(self, event):
+        ax = event.inaxes
+        if event.button == 1 and ax:
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+
+            # Check if the mouse is near the x or y axis
+            mouse_near_x_axis = abs(event.ydata - ylim[0]) < 0.03 * (ylim[1] - ylim[0])
+            mouse_near_y_axis = abs(event.xdata - xlim[0]) < 0.03 * (xlim[1] - xlim[0])
+
+            if mouse_near_x_axis or mouse_near_y_axis:
+                self.panning = False  # Disable panning when dragging an axis
+            else:
+                # Enable panning inside the chart area
+                self.panning = True
+                self.pan_start = (event.xdata, event.ydata)
+                self.xlim_start = ax.get_xlim()
+                self.ylim_start = ax.get_ylim()
+
+
+    def on_mouse_release(self, event):
+        if event.button == 1:
+            self.panning = False
+            self.pan_start = None
+
+    def on_mouse_move(self, event):
+        ax = event.inaxes
+        if ax is None or event.xdata is None or event.ydata is None:
+            return
+
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+
+        # Define drag zones near the axis (but outside the plot)
+        mouse_near_x_axis = abs(event.y - self.canvas.geometry().height()) < 20  # Near x-axis
+        mouse_near_y_axis = abs(event.x) < 20  # Near y-axis
+
+        scrub_sensitivity = 0.001  # Adjust sensitivity for finer control
+
+        # Panning inside the plot
+        if self.panning and event.xdata and event.ydata:
+            dx = self.pan_start[0] - event.xdata
+            dy = self.pan_start[1] - event.ydata
+            ax.set_xlim(self.xlim_start[0] + dx, self.xlim_start[1] + dx)
+            ax.set_ylim(self.ylim_start[0] + dy, self.ylim_start[1] + dy)
             self.canvas.draw()
+
+        # Scrubbing the x-axis only
+        elif mouse_near_x_axis and event.button == 1:
+            dx = (event.xdata - self.pan_start[0]) * scrub_sensitivity
+            new_xlim = [max(0, xlim[0] + dx), max(0, xlim[1] + dx)]
+            ax.set_xlim(new_xlim)
+            self.canvas.draw()
+
+        # Scrubbing the y-axis only
+        elif mouse_near_y_axis and event.button == 1:
+            dy = (event.ydata - self.pan_start[1]) * scrub_sensitivity
+            new_ylim = [max(0, ylim[0] + dy), max(0, ylim[1] + dy)]
+            ax.set_ylim(new_ylim)
+            self.canvas.draw()
+
+
+
+
+    def on_scroll(self, event):
+        ax = event.inaxes
+        if ax is None or event.xdata is None or event.ydata is None:
+            return
+
+        # Reverse the scale factor for more intuitive scrolling
+        scale_factor = 1.2 if event.button == 'down' else 0.8  # Changed directions
+        xdata = event.xdata
+        ydata = event.ydata
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+
+        # Compute new limits
+        new_xlim = [xdata - (xdata - xlim[0]) * scale_factor,
+                    xdata + (xlim[1] - xdata) * scale_factor]
+        new_ylim = [ydata - (ydata - ylim[0]) * scale_factor,
+                    ydata + (ylim[1] - ydata) * scale_factor]
+        ax.set_xlim(new_xlim)
+        ax.set_ylim(new_ylim)
+        self.canvas.draw()
+
+    def on_combo_hover(self, index):
+        # ... existing code ...
+        pass
+
+    def highlight_line(self, file_name):
+        # ... existing code ...
+        pass

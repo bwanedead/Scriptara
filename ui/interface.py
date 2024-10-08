@@ -1,14 +1,14 @@
-
 import os
 import logging
 from PyQt5.QtWidgets import (
     QMainWindow, QListWidget, QVBoxLayout, QWidget,
-    QPushButton, QHBoxLayout, QTextEdit, QAction
+    QPushButton, QHBoxLayout, QTextEdit, QAction, 
+    QMessageBox, 
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
-from ui.styles import dark_mode_stylesheet, light_mode_stylesheet
 from PyQt5.QtWidgets import QListWidgetItem
+from ui.styles import dark_mode_stylesheet, light_mode_stylesheet
 
 
 # Initialize logging to ensure warnings show up
@@ -25,6 +25,7 @@ class MainWindow(QMainWindow):
     next_report_signal = pyqtSignal()
     previous_report_signal = pyqtSignal()
     dashboard_signal = pyqtSignal()
+    load_sample_corpus_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -33,6 +34,14 @@ class MainWindow(QMainWindow):
         self.current_report_index = 0  # Start at the first report
         self.file_reports_list = []  # Will store the individual reports
         self.connect_signals()
+
+    def connect_signals(self):
+        # Connect buttons to signals
+        self.import_button.clicked.connect(self.import_files_signal.emit)
+        self.remove_button.clicked.connect(self.remove_files_signal.emit)
+        self.sample_corpus_button.clicked.connect(self.load_sample_corpus_signal.emit)
+        self.run_button.clicked.connect(self.run_analysis_signal.emit)
+        self.dashboard_button.clicked.connect(self.dashboard_signal.emit)
 
     def init_ui(self):
         self.setWindowTitle('Scriptara - Word Frequency Analyzer')
@@ -55,19 +64,15 @@ class MainWindow(QMainWindow):
         self.import_list.setSelectionMode(QListWidget.MultiSelection)
         file_layout.addWidget(self.import_list)
 
+        # Buttons: Import Files, Remove Files, Sample Corpus
         self.import_button = QPushButton('Import Files')
         self.remove_button = QPushButton('Remove Files')
+        self.sample_corpus_button = QPushButton('Load Sample Corpus')
 
-        # Connect buttons to signals
-       # Corrected signal-slot connections
-        # init_ui() in MainWindow
-        self.import_button.clicked.connect(self.import_files_signal.emit)
-
-        self.remove_button.clicked.connect(self.remove_files_signal.emit)
-
-
+        # Add the buttons to the layout
         file_layout.addWidget(self.import_button)
         file_layout.addWidget(self.remove_button)
+        file_layout.addWidget(self.sample_corpus_button)
 
         # Right pane
         report_layout = QVBoxLayout()
@@ -80,10 +85,7 @@ class MainWindow(QMainWindow):
 
         # Previous/Next buttons
         self.previous_report_button = QPushButton('Previous Report')
-        self.previous_report_button.clicked.connect(self.previous_report_signal.emit)
-
         self.next_report_button = QPushButton('Next Report')
-        self.next_report_button.clicked.connect(self.next_report_signal.emit)
 
         # Add the buttons in the correct order (Previous, then Next)
         button_layout.addWidget(self.previous_report_button)
@@ -101,11 +103,6 @@ class MainWindow(QMainWindow):
 
         report_layout.addLayout(report_button_layout)
 
-        self.run_button.clicked.connect(self.run_analysis_signal.emit)
-
-         # Connect the dashboard button to the dashboard signal
-        self.dashboard_button.clicked.connect(self.dashboard_signal.emit)
-
         # Add layouts to the main layout
         main_layout.addLayout(file_layout)
         main_layout.addLayout(report_layout)
@@ -113,10 +110,6 @@ class MainWindow(QMainWindow):
         self.create_menu_bar()
         self.enable_light_mode()
 
-    
-    def connect_signals(self):
-        # This method will be called by the Controller to connect signals
-        pass
 
     def create_menu_bar(self):
         menubar = self.menuBar()
@@ -144,10 +137,32 @@ class MainWindow(QMainWindow):
             item.setToolTip(file)
             self.import_list.addItem(item)
     
-
     # Method to get selected files from the list
     def get_selected_files(self):
         return [item.toolTip() for item in self.import_list.selectedItems()]
-    
 
+    # Method to load the sample corpus files
+    def load_sample_corpus(self):
+        # Define the path to the sample corpus directory
+        sample_corpus_dir = os.path.join(os.getcwd(), 'sample_corpus')  # Adjust path if necessary
+
+        # Check if the sample corpus directory exists
+        if os.path.exists(sample_corpus_dir) and os.path.isdir(sample_corpus_dir):
+            # Get all text files in the sample corpus directory
+            sample_files = [os.path.join(sample_corpus_dir, f) for f in os.listdir(sample_corpus_dir) if f.endswith('.txt') and os.path.isfile(os.path.join(sample_corpus_dir, f))]
+
+            # If there are sample files, add them to the imported files set
+            if sample_files:
+                new_files = set(sample_files) - self.imported_files  # Only add new files
+                self.imported_files.update(new_files)  # Update imported files
+                logging.info(f"Sample corpus loaded with files: {sample_files}")
+
+                # Update the file list in the UI
+                self.view.update_file_list(list(self.imported_files))
+            else:
+                logging.warning("No text files found in the sample corpus directory.")
+                QMessageBox.warning(self.view, "Error", "No text files found in the sample corpus directory.")
+        else:
+            logging.error(f"Sample corpus directory not found at: {sample_corpus_dir}")
+            QMessageBox.warning(self.view, "Error", f"Sample corpus directory not found at {sample_corpus_dir}.")
 

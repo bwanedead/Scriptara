@@ -17,3 +17,11 @@ class DashboardController:
     @property
     def word_frequencies(self):
         return self.main_controller.word_frequencies
+
+    @property
+    def percentage_frequencies(self):
+        return self.main_controller.percentage_frequencies
+
+    @property
+    def z_scores(self):
+        return self.main_controller.z_scores
