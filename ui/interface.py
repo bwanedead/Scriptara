@@ -3,10 +3,11 @@ import logging
 from PyQt5.QtWidgets import (
     QMainWindow, QListWidget, QVBoxLayout, QWidget,
     QPushButton, QHBoxLayout, QTextEdit, QAction, 
-    QMessageBox, 
+    QMessageBox, QTableWidget, QTableWidgetItem, 
+    QAbstractItemView,
 )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import Qt, pyqtSignal, QEvent
+from PyQt5.QtGui import QIcon, QColor, QBrush
 from PyQt5.QtWidgets import QListWidgetItem
 from ui.styles import dark_mode_stylesheet, light_mode_stylesheet
 
@@ -76,9 +77,19 @@ class MainWindow(QMainWindow):
 
         # Right pane
         report_layout = QVBoxLayout()
-        self.report_box = QTextEdit()
-        self.report_box.setPlaceholderText("Report will be shown here...")
-        report_layout.addWidget(self.report_box)
+        self.report_table = QTableWidget()  # Use QTableWidget instead of QTextEdit
+        self.report_table.setColumnCount(5)
+        self.report_table.setHorizontalHeaderLabels(["Word", "Count", "Percentage (%)", "Z-Score", "Log Z-Score"])
+        self.report_table.horizontalHeader().setStretchLastSection(True)
+        self.report_table.setAlternatingRowColors(True)
+        self.report_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.report_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.report_table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        report_layout.addWidget(self.report_table)
+
+        # Enable mouse tracking and install event filter for hover highlighting
+        self.report_table.setMouseTracking(True)
+        self.report_table.viewport().installEventFilter(self)
 
         # Initialize the button layout for Previous and Next buttons
         button_layout = QHBoxLayout()
@@ -125,10 +136,6 @@ class MainWindow(QMainWindow):
     def enable_light_mode(self):
         self.setStyleSheet(light_mode_stylesheet)
 
-    # Slot to display the report
-    def display_report(self, report):
-        self.report_box.setPlainText(report)
-
     # Slot to update the file list in the UI
     def update_file_list(self, files):
         self.import_list.clear()
@@ -166,3 +173,65 @@ class MainWindow(QMainWindow):
             logging.error(f"Sample corpus directory not found at: {sample_corpus_dir}")
             QMessageBox.warning(self.view, "Error", f"Sample corpus directory not found at {sample_corpus_dir}.")
 
+    def display_report(self, report_data):
+        if isinstance(report_data, str):
+            QMessageBox.information(self, "Information", report_data)
+            return
+
+        self.report_table.setRowCount(len(report_data))
+        
+        for row, data in enumerate(report_data):
+            for col, value in enumerate(data):
+                
+                 # Format numerical data to two decimal places if needed
+                if isinstance(value, float):
+                    item = QTableWidgetItem(f"{value:.2f}")
+                else:
+                    item = QTableWidgetItem(str(value))
+                
+                item.setTextAlignment(Qt.AlignCenter)
+                self.report_table.setItem(row, col, item)
+
+        # Resize columns to fit content
+        self.report_table.resizeColumnsToContents()
+
+        # Set alternating row colors with more contrast
+        for row in range(self.report_table.rowCount()):
+            for col in range(self.report_table.columnCount()):
+                item = self.report_table.item(row, col)
+                if item:
+                    if row % 2 == 0:
+                        # Lighter row (default)
+                        item.setBackground(self.report_table.palette().base())
+                    else:
+                        # Darker row (muted soft purple)
+                        item.setBackground(QColor(220, 210, 255))  # Adjust color as needed for contrast
+
+        # Enable horizontal scrolling
+        self.report_table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.report_table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+
+        # Implement hover highlighting
+        self.report_table.setMouseTracking(True)
+        self.report_table.viewport().installEventFilter(self)
+    
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.MouseMove and source == self.report_table.viewport():
+            index = self.report_table.indexAt(event.pos())
+            if index.isValid():
+                self.highlightRow(index.row())
+        return super(MainWindow, self).eventFilter(source, event)
+
+    def highlightRow(self, row):
+        for i in range(self.report_table.rowCount()):
+            for j in range(self.report_table.columnCount()):
+                item = self.report_table.item(i, j)
+                if item:
+                    if i == row:
+                        item.setBackground(QColor(220, 220, 255))  # Highlight color
+                    else:
+                        # Restore alternating row colors
+                        if i % 2 == 0:
+                            item.setBackground(self.report_table.palette().base())
+                        else:
+                            item.setBackground(self.report_table.palette().alternateBase())

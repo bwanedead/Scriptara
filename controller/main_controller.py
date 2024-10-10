@@ -1,7 +1,7 @@
-
 import os
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from PyQt5.QtCore import QObject
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTextEdit, QScrollBar
+from PyQt5.QtCore import QObject, Qt, QEvent
+from PyQt5.QtGui import QTextCharFormat, QColor, QTextCursor, QPalette, QTextFormat
 from model.word_analyzer import read_and_preprocess_file, calculate_word_frequencies, get_text_statistics, get_sorted_word_frequencies
 from collections import Counter
 import pandas as pd
@@ -30,7 +30,6 @@ class MainController(QObject):
         self.view.run_analysis_signal.connect(self.run_analysis)
         self.view.next_report_signal.connect(self.next_report)
         self.view.previous_report_signal.connect(self.previous_report)
-        self.view.display_report_signal.connect(self.view.display_report)
         self.view.dashboard_signal.connect(self.launch_dashboard)
         self.view.load_sample_corpus_signal.connect(self.load_sample_corpus)
 
@@ -71,7 +70,6 @@ class MainController(QObject):
             logging.error(f"An error occurred in import_files: {str(e)}")
             QMessageBox.critical(self.view, "Error", f"An error occurred while importing files:\n{str(e)}")
 
-
     def remove_files(self):
         selected_files = self.view.get_selected_files()
         self.imported_files -= set(selected_files)
@@ -87,7 +85,7 @@ class MainController(QObject):
             logging.debug(f"Imported files at start of analysis: {self.imported_files}")
 
             if not self.imported_files:
-                self.view.display_report_signal.emit("No files imported.")
+                self.view.display_report("No files imported.")
                 return
 
             # Clear previous reports and word frequencies
@@ -105,98 +103,81 @@ class MainController(QObject):
                 words = read_and_preprocess_file(file)
                 word_counts = calculate_word_frequencies(words)
 
-                # Get statistics (total words, unique words, and word frequencies)
+                # Get statistics (total words, unique words, word frequencies, Z-scores)
                 stats = get_text_statistics(word_counts)
 
-                # Generate a formatted report using the statistics
-                report = self.generate_report(stats)  # Only pass the stats dictionary
+                # Generate report data using the statistics
+                report_data = self.generate_report(stats)
 
-                self.file_reports[file] = report  # Store individual report
+                self.file_reports[file] = report_data  # Store individual report data
                 master_word_counts.update(word_counts)  # Update master counts
 
-                # Store sorted word frequencies for the dashboard
-                frequencies = [count for word, count, _, _ in stats['word_stats']]  # Extract counts
-                percentages = [perc for word, _, perc, _ in stats['word_stats']]
-                z_scores = [z for word, _, _, z in stats['word_stats']]
+                # Extract counts, percentages, and Z-scores from the stats
+                frequencies = [count for word, count, _, _, _ in stats['word_stats']]
+                percentages = [perc for word, _, perc, _, _ in stats['word_stats']]
+                z_scores = [z for word, _, _, z, _ in stats['word_stats']]
 
                 self.word_frequencies[file] = frequencies
                 self.percentage_frequencies[file] = percentages
                 self.z_scores[file] = z_scores
 
-            # Generate the master report (combined word frequencies across all files)
+            # Generate the master report
             master_stats = get_text_statistics(master_word_counts)
-            master_report = self.generate_report(master_stats)  # Only pass the stats dictionary
-            self.file_reports["Master Report"] = master_report
+            master_report_data = self.generate_report(master_stats)
+            self.file_reports["Master Report"] = master_report_data
 
-            # Prepare the order of reports for display (Master + Individual files)
+            # Prepare the order of reports for display
             self.reports_list.append("Master Report")
             self.reports_list.extend(self.imported_files)
 
             # Display the master report initially
-            self.view.display_report_signal.emit(master_report)
+            self.view.display_report(master_report_data)
             self.current_report_index = 0
 
         except Exception as e:
             logging.error(f"An error occurred during analysis: {str(e)}")
-            self.view.display_report_signal.emit(f"An error occurred: {str(e)}")
+            self.view.display_report(f"An error occurred: {str(e)}")
+
 
 
     def generate_report(self, stats):
-        """Generates a clean report including percentage frequencies and Z-scores."""
+        """Prepares the report data for display in the table."""
         total_word_count = stats['total_word_count']
-
-        # Word statistics (list of tuples with (word, count, percentage, z_score))
         word_stats = stats['word_stats']
-
-        # Header for the table
-        headers = "Word\t\tCount\tPercentage (%)\tZ-Score"
-
-        # Format each row using tab characters for column separation
-        rows = []
-        for word, count, percentage, z_score in word_stats:
-            row = f"{word}\t\t{count}\t{percentage:.2f}\t\t{z_score:.2f}"
-            rows.append(row)
-
-        # Combine the headers and rows into the final report
-        table = "\n".join(rows)
-        report = f"Total Words: {total_word_count}\n\n{headers}\n{table}"
-
-        return report
+        # Sort word_stats by count in descending order (frequency rank)
+        word_stats.sort(key=lambda x: x[1], reverse=True)
+        return word_stats
 
     def next_report(self):
-        """Move to the next report in the list."""
         try:
-            # Only return if there are no reports
             if not self.file_reports:
-                self.view.display_report_signal.emit("No reports available.")
-                return  # This return applies only to the empty reports case
+                self.view.display_report("No reports available.")
+                return
 
-            # Move to the next report
             self.current_report_index = (self.current_report_index + 1) % len(self.reports_list)
             current_report_key = self.reports_list[self.current_report_index]
-            current_report = self.file_reports[current_report_key]
-            self.view.display_report_signal.emit(f"{current_report_key}:\n\n{current_report}")
+            current_report_data = self.file_reports[current_report_key]
+            self.view.display_report(current_report_data)
 
         except Exception as e:
             logging.error(f"An error occurred while cycling reports: {str(e)}")
-            self.view.display_report_signal.emit(f"An error occurred: {str(e)}")
+            self.view.display_report(f"An error occurred: {str(e)}")
 
     def previous_report(self):
-        """Moves to the previous report (Master and individual)."""
         try:
-            if not self.reports_list:
-                self.view.display_report_signal.emit("No reports available to display.")
+            if not self.file_reports:
+                self.view.display_report("No reports available.")
                 return
 
-            # Move to the previous report
             self.current_report_index = (self.current_report_index - 1) % len(self.reports_list)
             current_report_key = self.reports_list[self.current_report_index]
-            current_report = self.file_reports[current_report_key]
-            self.view.display_report_signal.emit(f"{current_report_key}:\n\n{current_report}")
+            current_report_data = self.file_reports[current_report_key]
+            self.view.display_report(current_report_data)
 
         except Exception as e:
             logging.error(f"An error occurred while moving to the previous report: {str(e)}")
-            self.view.display_report_signal.emit(f"An error occurred: {str(e)}")
+            self.view.display_report(f"An error occurred: {str(e)}")
+
 
     def launch_dashboard(self):
         if not hasattr(self, 'word_frequencies') or not self.word_frequencies:
