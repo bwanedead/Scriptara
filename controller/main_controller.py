@@ -90,12 +90,11 @@ class MainController(QObject):
 
             # Clear previous reports and word frequencies
             self.file_reports.clear()
-            self.reports_list = []  # Reset report list
-            self.word_frequencies.clear()          # Clear raw frequencies
-            self.percentage_frequencies.clear()    # Clear percentage frequencies
-            self.z_scores.clear()                  # Clear Z-scores
+            self.reports_list = []
+            self.word_frequencies.clear()
+            self.percentage_frequencies.clear()
+            self.z_scores.clear()
 
-            # Initialize a master word counter
             master_word_counts = Counter()
 
             # Analyze each file and update master counts
@@ -103,35 +102,42 @@ class MainController(QObject):
                 words = read_and_preprocess_file(file)
                 word_counts = calculate_word_frequencies(words)
 
-                # Get statistics (total words, unique words, word frequencies, Z-scores)
-                stats = get_text_statistics(word_counts)
+                stats = get_text_statistics(word_counts)  # Already sorted in word_analyzer.py
 
-                # Generate report data using the statistics
-                report_data = self.generate_report(stats)
+                # Log each file's word stats for debugging
+                logging.debug(f"Word Stats for {file}: {stats['word_stats']}")
 
-                self.file_reports[file] = report_data  # Store individual report data
-                master_word_counts.update(word_counts)  # Update master counts
+                # Store data for each file
+                self.file_reports[file] = {
+                    'data': stats,
+                    'title': f"Report for {os.path.basename(file)}"
+                }
 
-                # Extract counts, percentages, and Z-scores from the stats
-                frequencies = [count for word, count, _, _, _ in stats['word_stats']]
-                percentages = [perc for word, _, perc, _, _ in stats['word_stats']]
-                z_scores = [z for word, _, _, z, _ in stats['word_stats']]
+                # Update the frequency dictionaries (no need to sort here)
+                self.word_frequencies[file] = [count for _, count, _, _, _ in stats['word_stats']]
+                self.percentage_frequencies[file] = [perc for _, _, perc, _, _ in stats['word_stats']]
+                self.z_scores[file] = [z for _, _, _, z, _ in stats['word_stats']]
 
-                self.word_frequencies[file] = frequencies
-                self.percentage_frequencies[file] = percentages
-                self.z_scores[file] = z_scores
+                # Update the master word counter
+                master_word_counts.update(word_counts)
 
             # Generate the master report
-            master_stats = get_text_statistics(master_word_counts)
-            master_report_data = self.generate_report(master_stats)
-            self.file_reports["Master Report"] = master_report_data
+            master_stats = get_text_statistics(master_word_counts)  # Already sorted
+
+            self.file_reports["Master Report"] = {
+                'data': master_stats,
+                'title': "Master Report"
+            }
+
+            # Log the master word stats
+            logging.debug(f"Master Word Stats: {master_stats['word_stats']}")
 
             # Prepare the order of reports for display
             self.reports_list.append("Master Report")
             self.reports_list.extend(self.imported_files)
 
             # Display the master report initially
-            self.view.display_report(master_report_data)
+            self.generate_report(master_stats, "Master Report")
             self.current_report_index = 0
 
         except Exception as e:
@@ -139,14 +145,16 @@ class MainController(QObject):
             self.view.display_report(f"An error occurred: {str(e)}")
 
 
-
-    def generate_report(self, stats):
-        """Prepares the report data for display in the table."""
+    def generate_report(self, stats, report_title):
+        """Generates a report including title, total word count, and formatted table."""
         total_word_count = stats['total_word_count']
         word_stats = stats['word_stats']
         # Sort word_stats by count in descending order (frequency rank)
         word_stats.sort(key=lambda x: x[1], reverse=True)
-        return word_stats
+
+        # Pass the formatted report details to the view
+        self.view.display_report(word_stats, report_title, total_word_count)
+
 
     def next_report(self):
         try:
@@ -154,10 +162,14 @@ class MainController(QObject):
                 self.view.display_report("No reports available.")
                 return
 
+            # Move to the next report
             self.current_report_index = (self.current_report_index + 1) % len(self.reports_list)
             current_report_key = self.reports_list[self.current_report_index]
-            current_report_data = self.file_reports[current_report_key]
-            self.view.display_report(current_report_data)
+            report_data = self.file_reports[current_report_key]['data']
+            report_title = self.file_reports[current_report_key]['title']
+
+            # Generate the report for the new context (the current file or master report)
+            self.generate_report(report_data, report_title)
 
         except Exception as e:
             logging.error(f"An error occurred while cycling reports: {str(e)}")
@@ -169,10 +181,14 @@ class MainController(QObject):
                 self.view.display_report("No reports available.")
                 return
 
+            # Move to the previous report (circularly)
             self.current_report_index = (self.current_report_index - 1) % len(self.reports_list)
             current_report_key = self.reports_list[self.current_report_index]
-            current_report_data = self.file_reports[current_report_key]
-            self.view.display_report(current_report_data)
+            report_data = self.file_reports[current_report_key]['data']
+            report_title = self.file_reports[current_report_key]['title']
+
+            # Generate the report for the new context (the current file or master report)
+            self.generate_report(report_data, report_title)
 
         except Exception as e:
             logging.error(f"An error occurred while moving to the previous report: {str(e)}")
@@ -180,9 +196,20 @@ class MainController(QObject):
 
 
     def launch_dashboard(self):
-        if not hasattr(self, 'word_frequencies') or not self.word_frequencies:
+        # Log the data before launching the dashboard
+        logging.debug(f"Launching dashboard with data: "
+                    f"Word Frequencies: {self.word_frequencies}, "
+                    f"Percentage Frequencies: {self.percentage_frequencies}, "
+                    f"Z-Scores: {self.z_scores}")
+
+        # Check if the necessary data is available
+        if not self.word_frequencies:
             QMessageBox.warning(self.view, "No Data", "Please run the analysis before opening the dashboard.")
             return
+
+        # Initialize the dashboard controller if it doesn't exist
         if not hasattr(self, 'dashboard_controller'):
             self.dashboard_controller = DashboardController(self)
+
+        # Launch the dashboard window
         self.dashboard_controller.show()

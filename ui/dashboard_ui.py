@@ -1,6 +1,8 @@
 # dashboard_ui.py
 
 import os
+import logging
+
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QFrame, QRadioButton, QButtonGroup, QCheckBox
 )
@@ -250,14 +252,17 @@ class DashboardWindow(QMainWindow):
         self.update_plot()
 
     def update_plot(self):
+        logging.info("Updating the plot with selected files.")
+
         # Get the list of selected files
         selected_files = []
         for index in range(2, self.combo_box.model().rowCount()):  # Skip special items
             item = self.combo_box.model().item(index)
             if item.checkState() == Qt.Checked:
-                # Retrieve the full file path from self.file_list
-                file = self.file_list[index - 2]  # Adjust index because of special items
+                file = self.file_list[index - 2]  # Adjust index for special items
                 selected_files.append(file)
+
+        logging.debug(f"Selected files for plotting: {selected_files}")
 
         self.figure.clear()
         ax = self.figure.add_subplot(111)
@@ -267,6 +272,7 @@ class DashboardWindow(QMainWindow):
         # Clear previous line references
         self.line_objects.clear()
 
+        # Loop through the selected files to plot data
         for file in selected_files:
             basename = os.path.basename(file)
             color = self.combo_box.colors.get(basename, None)
@@ -275,7 +281,9 @@ class DashboardWindow(QMainWindow):
                 rgb = color.getRgbF()
                 line_color = (rgb[0], rgb[1], rgb[2])
 
-            # Get the appropriate data based on the selected visualization
+            logging.debug(f"Processing file: {basename}")
+
+            # Retrieve the appropriate data based on the selected radio button
             if self.radio_loglog.isChecked():
                 y_data = self.controller.word_frequencies.get(file, [])
                 y_label = 'Frequency'
@@ -286,8 +294,12 @@ class DashboardWindow(QMainWindow):
                 y_data = self.controller.z_scores.get(file, [])
                 y_label = 'Z-Score'
             else:
-                continue  # No valid option selected
+                logging.warning(f"No valid visualization type selected for {basename}.")
+                continue  # Skip to the next file
 
+            logging.debug(f"{basename} - {y_label} data (first 10 points): {y_data[:10]}")
+
+            # Plot the data if available
             if y_data:
                 ranks = range(1, len(y_data) + 1)
                 line, = ax.plot(ranks, y_data, label=basename, color=line_color)
@@ -310,16 +322,17 @@ class DashboardWindow(QMainWindow):
         # Add grid lines for better readability
         ax.grid(True, which='both', linestyle='--', linewidth=0.5)
 
-        # Remove legend to prevent clutter (optional)
-        # ax.legend()
-
         # Display a message if no files are selected
         if not selected_files:
+            logging.warning("No files selected for plotting.")
             ax.text(0.5, 0.5, 'No files selected', transform=ax.transAxes,
                     ha='center', va='center')
 
         # Redraw the canvas
         self.canvas.draw()
+        logging.info("Plot updated successfully.")
+
+        
 
     # Event handlers for panning and zooming
     def on_mouse_press(self, event):

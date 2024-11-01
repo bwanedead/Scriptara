@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QListWidget, QVBoxLayout, QWidget,
     QPushButton, QHBoxLayout, QTextEdit, QAction, 
     QMessageBox, QTableWidget, QTableWidgetItem, 
-    QAbstractItemView,
+    QAbstractItemView, QHeaderView,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 from PyQt5.QtGui import QIcon, QColor, QBrush
@@ -43,6 +43,9 @@ class MainWindow(QMainWindow):
         self.sample_corpus_button.clicked.connect(self.load_sample_corpus_signal.emit)
         self.run_button.clicked.connect(self.run_analysis_signal.emit)
         self.dashboard_button.clicked.connect(self.dashboard_signal.emit)
+        self.next_report_button.clicked.connect(self.next_report_signal.emit)
+        self.previous_report_button.clicked.connect(self.previous_report_signal.emit)
+
 
     def init_ui(self):
         self.setWindowTitle('Scriptara - Word Frequency Analyzer')
@@ -173,17 +176,24 @@ class MainWindow(QMainWindow):
             logging.error(f"Sample corpus directory not found at: {sample_corpus_dir}")
             QMessageBox.warning(self.view, "Error", f"Sample corpus directory not found at {sample_corpus_dir}.")
 
-    def display_report(self, report_data):
+    def display_report(self, report_data, report_title, total_word_count):
         if isinstance(report_data, str):
             QMessageBox.information(self, "Information", report_data)
             return
 
+        # Set the header of the report with the report title and total word count
+        header_text = f"<h3>{report_title}</h3><p>Total Words: {total_word_count}</p>"
+        self.setWindowTitle(header_text)  # Or you can set this text in a label in the UI
+
+        # Clear any existing rows
+        self.report_table.setRowCount(0)
+
+        # Set the rows and columns based on report data
         self.report_table.setRowCount(len(report_data))
-        
+
         for row, data in enumerate(report_data):
             for col, value in enumerate(data):
-                
-                 # Format numerical data to two decimal places if needed
+                # Format numerical data to two decimal places if needed
                 if isinstance(value, float):
                     item = QTableWidgetItem(f"{value:.2f}")
                 else:
@@ -192,8 +202,15 @@ class MainWindow(QMainWindow):
                 item.setTextAlignment(Qt.AlignCenter)
                 self.report_table.setItem(row, col, item)
 
-        # Resize columns to fit content
-        self.report_table.resizeColumnsToContents()
+        # Set fixed column widths for consistency across reports
+        self.report_table.setColumnWidth(0, 150)  # Word column width
+        self.report_table.setColumnWidth(1, 100)  # Count column width
+        self.report_table.setColumnWidth(2, 120)  # Percentage column width
+        self.report_table.setColumnWidth(3, 120)  # Z-Score column width
+        self.report_table.setColumnWidth(4, 120)  # Log Z-Score column width
+
+        # Disable auto resizing based on content
+        self.report_table.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
 
         # Set alternating row colors with more contrast
         for row in range(self.report_table.rowCount()):
@@ -207,13 +224,15 @@ class MainWindow(QMainWindow):
                         # Darker row (muted soft purple)
                         item.setBackground(QColor(220, 210, 255))  # Adjust color as needed for contrast
 
-        # Enable horizontal scrolling
+        # Enable horizontal scrolling to prevent column wrapping
         self.report_table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.report_table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
 
         # Implement hover highlighting
         self.report_table.setMouseTracking(True)
         self.report_table.viewport().installEventFilter(self)
+
+
     
     def eventFilter(self, source, event):
         if event.type() == QEvent.MouseMove and source == self.report_table.viewport():
@@ -232,6 +251,7 @@ class MainWindow(QMainWindow):
                     else:
                         # Restore alternating row colors
                         if i % 2 == 0:
-                            item.setBackground(self.report_table.palette().base())
+                            item.setBackground(QColor(245, 245, 255))  # Light purple/white
                         else:
-                            item.setBackground(self.report_table.palette().alternateBase())
+                            item.setBackground(QColor(225, 225, 245))  # Muted purple
+

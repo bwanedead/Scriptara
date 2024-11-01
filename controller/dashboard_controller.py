@@ -25,3 +25,8 @@ class DashboardController:
     @property
     def z_scores(self):
         return self.main_controller.z_scores
+    
+    @property
+    def file_reports(self):
+        # Pass the file reports from the MainController
+        return self.main_controller.file_reports

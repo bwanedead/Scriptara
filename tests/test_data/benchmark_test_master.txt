@@ -1,0 +1,66 @@
+Benchmark_test1.txt
+Word count: 333
+
+"hello": 51
+"world": 53
+"apple": 50
+"the": 61
+"of": 41
+"and": 71
+
+Benchmark_test2.txt
+Word count: 86
+
+"hello": 37
+"world": 40
+"#": 7
+"@": 7
+"%": 7
+"&": 7
+"!": 7
+"*": 7
+"$": 7
+
+Benchmark_test3.txt
+Word count: 83
+
+benchmark_test3.txt
+
+Numbers:
+'123': 3
+'456': 2
+'789': 2
+'101': 3
+'2020': 2
+'3030': 2
+
+Words with Symbols:
+'value!': 2
+'price$': 2
+'data@code#': 2
+'level#1': 2
+'result&2': 2
+
+Words with Different Cases (Case-Insensitive Count):
+'hello': 10
+
+Accented Characters and Emojis:
+'café': 3
+'☕': 3
+'🎉': 3
+'🥳': 3
+
+Standalone Symbols:
+'!': 2
+'@': 2
+'#': 2
+'$': 2
+'%': 2
+'&': 2
+'*': 2
+'^': 2
+
+
+
+benchmark_test_empty.txt
+Total Words: 0

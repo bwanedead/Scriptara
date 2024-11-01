@@ -1,0 +1,37 @@
+
+
+123 123 456 789 101 101 2020 3030
+
+'123' 
+'456'
+'789'
+'101'
+'2020'
+'3030'
+
+
+
+value! price$ data@code# level#1 result&2
+
+'value!' 
+'price$' 
+'data@code#'  
+'level#1'
+'result&2'
+
+
+HELLO Hello hello HELLO Hello hello HELLO Hello hello
+
+Hello
+
+
+café café ☕ ☕ 🎉 🎉 🥳 🥳
+
+'café'
+'☕'
+'🎉'
+'🥳'
+
+
+
+
