@@ -11,6 +11,7 @@ logging.basicConfig(level=logging.DEBUG)
 def main():
     try:
         logging.info("Starting application...")
+        
         app = QApplication(sys.argv)
 
         window = MainWindow()

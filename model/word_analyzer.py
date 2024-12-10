@@ -2,35 +2,34 @@ import re
 import numpy as np
 from collections import Counter
 
+# Define stopword list containing only 's'
+stop_words = {"s"}  # Only 's' is a stopword
 
-
-import re
-
-import re
-
-import re
 
 def read_and_preprocess_file(file_path):
-    """Reads a text file, processes it to capture alphanumeric sequences with symbols as single words."""
+    """
+    Reads a text file, processes it to capture words including those with apostrophes,
+    and filters out stopwords (only 's' as a standalone word).
+    """
     words = []
     punctuation = []
+    stop_words = {'s'}  # Define the stopwords (only 's')
 
     with open(file_path, 'r', encoding='utf-8') as file:
         text = file.read().lower()
 
-        # Updated regex to capture alphanumeric words with attached symbols as single units
-        tokens = re.findall(r'\b\w[\w@#\$%&!\-]*\b', text)  # Adjust to capture words with symbols like @, #, etc.
-        
+        # Updated regex to include apostrophes within words
+        tokens = re.findall(r"\b\w+(?:'\w+)*\b", text)
+
         for token in tokens:
-            if re.match(r'\w[\w@#\$%&!\-]*', token):  # Accept words with alphanumeric characters and symbols
-                words.append(token)
+            if re.match(r"\w+(?:'\w+)*", token):
+                # Exclude stopwords (e.g., 's')
+                if token not in stop_words:
+                    words.append(token)
             else:
-                punctuation.append(token)  # Collect standalone punctuation separately
+                punctuation.append(token)
 
     return words, punctuation
-
-
-
 
 
 def calculate_word_frequencies(words):

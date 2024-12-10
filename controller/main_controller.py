@@ -7,8 +7,15 @@ from collections import Counter
 import pandas as pd
 from tabulate import tabulate
 from controller.dashboard_controller import DashboardController
-
 import logging
+from tests.assurance_tests import (
+    independent_total_word_count,
+    independent_unique_word_count,
+    independent_percentage_sum,
+    independent_rank_count,
+    independent_total_from_counts
+)
+
 
 class MainController(QObject):
     def __init__(self, view):
@@ -99,7 +106,7 @@ class MainController(QObject):
 
             # Analyze each file and update master counts
             for file in self.imported_files:
-                words = read_and_preprocess_file(file)
+                words, _ = read_and_preprocess_file(file)
                 word_counts = calculate_word_frequencies(words)
 
                 stats = get_text_statistics(word_counts)  # Already sorted in word_analyzer.py
@@ -121,6 +128,13 @@ class MainController(QObject):
                 # Update the master word counter
                 master_word_counts.update(word_counts)
 
+                # Run assurance tests for this file
+                assurance_results, all_tests_passed = self.run_assurance_tests(stats)
+                self.file_reports[file]['assurance'] = {
+                    'results': assurance_results,
+                    'all_passed': all_tests_passed
+                }
+
             # Generate the master report
             master_stats = get_text_statistics(master_word_counts)  # Already sorted
 
@@ -132,6 +146,13 @@ class MainController(QObject):
             # Log the master word stats
             logging.debug(f"Master Word Stats: {master_stats['word_stats']}")
 
+            # Run assurance tests on the master report
+            assurance_results, all_tests_passed = self.run_assurance_tests(master_stats)
+            self.file_reports["Master Report"]['assurance'] = {
+                'results': assurance_results,
+                'all_passed': all_tests_passed
+            }
+
             # Prepare the order of reports for display
             self.reports_list.append("Master Report")
             self.reports_list.extend(self.imported_files)
@@ -139,6 +160,13 @@ class MainController(QObject):
             # Display the master report initially
             self.generate_report(master_stats, "Master Report")
             self.current_report_index = 0
+
+            # Display the assurance results for the master report
+            self.view.display_assurance_results(
+                assurance_results,
+                all_tests_passed,
+                "Master Report"
+            )
 
         except Exception as e:
             logging.error(f"An error occurred during analysis: {str(e)}")
@@ -171,6 +199,14 @@ class MainController(QObject):
             # Generate the report for the new context (the current file or master report)
             self.generate_report(report_data, report_title)
 
+            # Display the corresponding assurance results
+            assurance_info = self.file_reports[current_report_key]['assurance']
+            self.view.display_assurance_results(
+                assurance_info['results'],
+                assurance_info['all_passed'],
+                report_title
+            )
+
         except Exception as e:
             logging.error(f"An error occurred while cycling reports: {str(e)}")
             self.view.display_report(f"An error occurred: {str(e)}")
@@ -190,26 +226,76 @@ class MainController(QObject):
             # Generate the report for the new context (the current file or master report)
             self.generate_report(report_data, report_title)
 
+            # Display the corresponding assurance results
+            assurance_info = self.file_reports[current_report_key]['assurance']
+            self.view.display_assurance_results(
+                assurance_info['results'],
+                assurance_info['all_passed'],
+                report_title
+            )
+
         except Exception as e:
             logging.error(f"An error occurred while moving to the previous report: {str(e)}")
             self.view.display_report(f"An error occurred: {str(e)}")
 
+    def run_assurance_tests(self, stats):
+        """Runs independent assurance tests and returns the results."""
+        # Extract data needed for assurance tests from stats
+        total_word_count = stats['total_word_count']
+        unique_word_count = stats['unique_word_count']
+        word_stats = stats['word_stats']
+
+        # Prepare data for assurance functions
+        word_counts = {word: count for word, count, _, _, _ in word_stats}
+        words_list = [word for word, count in word_counts.items() for _ in range(count)]
+
+        # Perform independent assurance calculations
+        ind_total_word_count = independent_total_word_count(words_list)
+        ind_unique_word_count = independent_unique_word_count(words_list)
+        ind_percentage_sum = independent_percentage_sum(word_counts)
+        ind_rank_count = independent_rank_count(word_stats)
+        ind_total_from_counts = independent_total_from_counts(word_counts)
+
+        # Prepare assurance results
+        assurance_results = {
+            'Total Word Count': {
+                'Expected': total_word_count,
+                'Actual': ind_total_word_count,
+                'Passed': total_word_count == ind_total_word_count
+            },
+            'Unique Word Count': {
+                'Expected': unique_word_count,
+                'Actual': ind_unique_word_count,
+                'Passed': unique_word_count == ind_unique_word_count
+            },
+            'Sum of Percentages': {
+                'Expected': 100.0,
+                'Actual': ind_percentage_sum,
+                'Passed': abs(ind_percentage_sum - 100.0) < 0.01  # Allow for small floating point errors
+            },
+            'Number of Ranks': {
+                'Expected': unique_word_count,
+                'Actual': ind_rank_count,
+                'Passed': unique_word_count == ind_rank_count
+            },
+            'Total from Counts': {
+                'Expected': total_word_count,
+                'Actual': ind_total_from_counts,
+                'Passed': total_word_count == ind_total_from_counts
+            }
+        }
+
+        # Determine overall pass/fail status
+        all_tests_passed = all(result['Passed'] for result in assurance_results.values())
+
+        return assurance_results, all_tests_passed
+
 
     def launch_dashboard(self):
-        # Log the data before launching the dashboard
-        logging.debug(f"Launching dashboard with data: "
-                    f"Word Frequencies: {self.word_frequencies}, "
-                    f"Percentage Frequencies: {self.percentage_frequencies}, "
-                    f"Z-Scores: {self.z_scores}")
-
-        # Check if the necessary data is available
-        if not self.word_frequencies:
-            QMessageBox.warning(self.view, "No Data", "Please run the analysis before opening the dashboard.")
-            return
-
         # Initialize the dashboard controller if it doesn't exist
         if not hasattr(self, 'dashboard_controller'):
             self.dashboard_controller = DashboardController(self)
 
-        # Launch the dashboard window
+        # Call show() on the dashboard_controller to create and display the dashboard
         self.dashboard_controller.show()
+

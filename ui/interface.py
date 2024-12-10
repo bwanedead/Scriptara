@@ -4,11 +4,10 @@ from PyQt5.QtWidgets import (
     QMainWindow, QListWidget, QVBoxLayout, QWidget,
     QPushButton, QHBoxLayout, QTextEdit, QAction, 
     QMessageBox, QTableWidget, QTableWidgetItem, 
-    QAbstractItemView, QHeaderView,
+    QAbstractItemView, QHeaderView, QLabel, QListWidgetItem
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 from PyQt5.QtGui import QIcon, QColor, QBrush
-from PyQt5.QtWidgets import QListWidgetItem
 from ui.styles import dark_mode_stylesheet, light_mode_stylesheet
 
 
@@ -48,7 +47,7 @@ class MainWindow(QMainWindow):
 
 
     def init_ui(self):
-        self.setWindowTitle('Scriptara - Word Frequency Analyzer')
+        self.setWindowTitle('Scriptara - Scriptara - Word Frequency Analyzer')
         self.setGeometry(100, 100, 800, 600)
         
         icon_path = 'path/to/icon.png'
@@ -80,7 +79,26 @@ class MainWindow(QMainWindow):
 
         # Right pane
         report_layout = QVBoxLayout()
-        self.report_table = QTableWidget()  # Use QTableWidget instead of QTextEdit
+
+        # Assurance toggle button
+        self.assurance_toggle_button = QPushButton("Assurance Details")
+        self.assurance_toggle_button.setCheckable(True)
+        self.assurance_toggle_button.setChecked(True)  # Expanded by default
+        self.assurance_toggle_button.toggled.connect(self.toggle_assurance_details)
+        report_layout.addWidget(self.assurance_toggle_button)
+
+        # Assurance details container
+        self.assurance_container = QWidget()
+        assurance_layout = QVBoxLayout(self.assurance_container)
+        self.assurance_label = QLabel()
+        self.assurance_label.setWordWrap(True)
+        self.assurance_label.setAlignment(Qt.AlignCenter)
+        self.assurance_label.setStyleSheet("margin: 10px;")  # Optional styling
+        assurance_layout.addWidget(self.assurance_label)
+        report_layout.addWidget(self.assurance_container)
+
+        # Report table
+        self.report_table = QTableWidget()
         self.report_table.setColumnCount(5)
         self.report_table.setHorizontalHeaderLabels(["Word", "Count", "Percentage (%)", "Z-Score", "Log Z-Score"])
         self.report_table.horizontalHeader().setStretchLastSection(True)
@@ -96,12 +114,8 @@ class MainWindow(QMainWindow):
 
         # Initialize the button layout for Previous and Next buttons
         button_layout = QHBoxLayout()
-
-        # Previous/Next buttons
         self.previous_report_button = QPushButton('Previous Report')
         self.next_report_button = QPushButton('Next Report')
-
-        # Add the buttons in the correct order (Previous, then Next)
         button_layout.addWidget(self.previous_report_button)
         button_layout.addWidget(self.next_report_button)
 
@@ -114,7 +128,6 @@ class MainWindow(QMainWindow):
         report_button_layout = QHBoxLayout()
         report_button_layout.addWidget(self.run_button)
         report_button_layout.addWidget(self.dashboard_button)
-
         report_layout.addLayout(report_button_layout)
 
         # Add layouts to the main layout
@@ -232,6 +245,38 @@ class MainWindow(QMainWindow):
         self.report_table.setMouseTracking(True)
         self.report_table.viewport().installEventFilter(self)
 
+
+    def display_assurance_results(self, assurance_results, all_tests_passed, report_title):
+        """Displays the assurance results in the assurance box above the report table."""
+        # Build the HTML content for the assurance box
+        assurance_html = f"<h2>Assurance Tests for {report_title}</h2>"
+        assurance_html += "<table border='1' cellpadding='5' cellspacing='0' style='margin: 10px auto; border-collapse: collapse;'>"
+        assurance_html += "<tr><th>Metric</th><th>Expected</th><th>Actual</th><th>Status</th></tr>"
+
+        for metric, result in assurance_results.items():
+            status_color = "green" if result['Passed'] else "red"
+            status_text = "Pass" if result['Passed'] else "Fail"
+            actual_value = f"{result['Actual']:.2f}" if isinstance(result['Actual'], float) else result['Actual']
+            assurance_html += f"<tr>"
+            assurance_html += f"<td>{metric}</td>"
+            assurance_html += f"<td>{result['Expected']}</td>"
+            assurance_html += f"<td>{actual_value}</td>"
+            assurance_html += f"<td style='color: {status_color};'>{status_text}</td>"
+            assurance_html += f"</tr>"
+        assurance_html += "</table>"
+
+        # Overall test result message
+        if all_tests_passed:
+            overall_status = "<p style='color: green;'><strong>All assurance tests passed.</strong></p>"
+        else:
+            overall_status = "<p style='color: red;'><strong>Some assurance tests failed. Please review the discrepancies highlighted above.</strong></p>"
+
+        # Set the text in the assurance label
+        self.assurance_label.setText(assurance_html + overall_status)
+
+    def toggle_assurance_details(self, checked):
+        """Show or hide the assurance details based on the toggle button state."""
+        self.assurance_container.setVisible(checked)
 
     
     def eventFilter(self, source, event):
