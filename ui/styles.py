@@ -137,6 +137,36 @@ dark_mode_stylesheet = """
     }
 """
 
+sleek_scrollbar_style = """
+QScrollBar:vertical {
+    border: none;
+    background: #2b2b2b; /* Background color of scrollbar track */
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #555555; /* Color of the scrollbar handle */
+    border-radius: 5px; /* Rounded edges */
+    min-height: 20px; /* Minimum handle height */
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #777777; /* Hover color */
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px; /* Hide up/down arrows */
+    width: 0px; /* Hide up/down arrows */
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none; /* Transparent for the remaining track */
+}
+"""
+
+dark_mode_stylesheet += sleek_scrollbar_style
+
 light_mode_stylesheet = """
     QWidget {
         background-color: #f0f0f0;
@@ -273,6 +303,36 @@ light_mode_stylesheet = """
     }
 """
 
+light_scrollbar_style = """
+QScrollBar:vertical {
+    border: none;
+    background: #f0f0f0; /* Background color of scrollbar track */
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #cccccc; /* Color of the scrollbar handle */
+    border-radius: 5px; /* Rounded edges */
+    min-height: 20px; /* Minimum handle height */
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #aaaaaa; /* Hover color */
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px; /* Hide up/down arrows */
+    width: 0px; /* Hide up/down arrows */
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none; /* Transparent for the remaining track */
+}
+"""
+
+light_mode_stylesheet += light_scrollbar_style
+
 dim_mode_stylesheet = """
     QWidget {
         background-color: #4b4b4b;
@@ -408,3 +468,33 @@ dim_mode_stylesheet = """
         background: none;
     }
 """
+
+dim_scrollbar_style = """
+QScrollBar:vertical {
+    border: none;
+    background: #4b4b4b; /* Background color of scrollbar track */
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #6b6b6b; /* Color of the scrollbar handle */
+    border-radius: 5px; /* Rounded edges */
+    min-height: 20px; /* Minimum handle height */
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #7b7b7b; /* Hover color */
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px; /* Hide up/down arrows */
+    width: 0px; /* Hide up/down arrows */
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none; /* Transparent for the remaining track */
+}
+"""
+
+dim_mode_stylesheet += dim_scrollbar_style

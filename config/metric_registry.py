@@ -1,17 +1,37 @@
-# config/metrics_registry.py
+# metrics_registry.py
 
 METRICS = {
     "frequency_distribution": {
         "name": "Frequency Distribution",
         "description": "Metrics related to frequency of words.",
         "sub_metrics": {
-            "nominal_frequency": {
+            "nominal": {
                 "name": "Nominal Frequency",
                 "description": "Raw frequency of words.",
                 "calculation_function": "advanced_analysis.calculate_nominal_frequency",
-                "visualization_type": "line_plot",
+                "visualization_type": "frequency_distribution",
+                "initial_mode": "nominal"
             },
-            # Additional sub-metrics can go here...
+            "percentage": {
+                "name": "Percentage Frequency",
+                "description": "Frequency as percentages.",
+                "calculation_function": "advanced_analysis.calculate_percentage_frequency",
+                "visualization_type": "frequency_distribution",
+                "initial_mode": "percentage"
+            },
+            "z_score": {
+                "name": "Z-Score Frequency",
+                "description": "Z-score of word frequencies.",
+                "calculation_function": "advanced_analysis.calculate_z_score_frequency",
+                "visualization_type": "frequency_distribution",
+                "initial_mode": "z_score"
+            },
+            "reports": {
+                "name": "Frequency Reports",
+                "description": "Display aggregator-based frequency reports in a single view.",
+                "calculation_function": "advanced_analysis.get_reports",
+                "visualization_type": "frequency_reports"
+            },
         }
     },
     "overlap_metrics": {
@@ -30,22 +50,11 @@ METRICS = {
                 "calculation_function": "advanced_analysis.calculate_bo_scores",
                 "visualization_type": "bar_chart",
             }
-            # Additional sub-metrics can go here...
         }
     }
 }
 
 def get_metric(category_key, sub_key):
-    """
-    Retrieve a specific metric configuration by category and sub-metric key.
-
-    Args:
-        category_key (str): The key for the category of the metric.
-        sub_key (str): The key for the sub-metric.
-
-    Returns:
-        dict or None: The configuration dictionary for the metric, or None if not found.
-    """
     category = METRICS.get(category_key)
     if not category:
         return None
