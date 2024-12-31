@@ -9,19 +9,18 @@ def create_cell(file_reports, category_key, sub_key, initial_mode=None):
     if not metric_data:
         return create_placeholder()
 
-    visualization_type = metric_data["visualization_type"]
-    vis_class = get_visualization_class(visualization_type)
-    layout_func = get_visualization_layout(visualization_type)
-
+    vis_type = metric_data["visualization_type"]
+    vis_class = get_visualization_class(vis_type)
+    layout_func = get_visualization_layout(vis_type)
     if not layout_func:
         return create_placeholder()
 
-    # If we have a class, we instantiate it with file_reports, else pass file_reports to the layout
     if vis_class:
+        # e.g. "frequency_distribution"
         vis = vis_class(file_reports, initial_mode=metric_data.get("initial_mode", initial_mode))
         cell_widget = layout_func(vis)
     else:
-        # For "frequency_reports", we assume no class is needed.
+        # e.g. "frequency_reports"
         cell_widget = layout_func(file_reports)
 
     return cell_widget

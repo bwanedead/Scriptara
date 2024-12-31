@@ -1,15 +1,24 @@
 # visualization_registry.py
-from visualizations.metric_visualizations import FrequencyDistributionVisualization
-from visualizations.cell_layout import FrequencyDistributionLayout, FrequencyReportsLayout
+
+from visualizations.metric_visualizations import (
+    FrequencyDistributionVisualization,
+    FrequencyReportsAggregator
+)
+from visualizations.cell_layout import (
+    FrequencyDistributionLayout,
+    FrequencyReportsLayout
+)
 
 visualization_registry = {
     "frequency_distribution": {
         "class": FrequencyDistributionVisualization,
+        # layout expects a "vis" object
         "layout": lambda vis: FrequencyDistributionLayout(vis).generate_layout(),
     },
-    "frequency_reports": {
+      "frequency_reports": {
         "class": None,
-        "layout": lambda file_reports: FrequencyReportsLayout(file_reports).generate_layout(),
+        # Use the consistent name FrequencyReportsLayout
+        "layout": lambda file_reports: FrequencyReportsLayout(file_reports),
     },
 }
 

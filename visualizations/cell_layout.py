@@ -1,5 +1,5 @@
 # cell_layout.py
-print("DEBUG: cell_layout_DEBUG.py is now actually loading!")
+from visualizations.metric_visualizations import FrequencyReportsAggregator
 import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
                             QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton
@@ -63,94 +63,112 @@ class FrequencyDistributionLayout:
 
 
 
-class FrequencyReportsLayout:
+class FrequencyReportsLayout(QWidget):
     """
-    A layout class that displays all file_reports (Master + each file) in a simple interface
-    with Previous / Next buttons to cycle through them.
+    A self-contained QWidget that aggregates 'Master Report' + other files
+    and displays them in a QTableWidget with Next/Previous navigation.
     """
 
-    def __init__(self, file_reports):
+    def __init__(self, file_reports, parent=None):
+        super().__init__()  # Do not pass parent here
+        self.setParent(parent)  # Explicitly set the parent if needed
+
+        print("DEBUG: FrequencyReportsLayout __init__ called!")
         self.file_reports = file_reports
-        # We'll store a list of {"title": <filename or 'Master'>, "data": {...}}
         self.reports_list = []
-        self._build_reports_list()
+        self._build_aggregated_list()
 
-        self.current_index = 0  # start at 0 (first report)
+        self.current_index = 0
 
-    def _build_reports_list(self):
-        # If there's a "Master Report", put it first
+        # Build the UI
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(10)
+
+        # Title Label
+        self.title_label = QLabel()
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("font-size:16px; color:#FFFFFF;")
+        main_layout.addWidget(self.title_label)
+
+        # Nav buttons row
+        nav_layout = QHBoxLayout()
+        self.prev_btn = QPushButton("Previous")
+        self.prev_btn.clicked.connect(self.show_previous_report)
+        nav_layout.addWidget(self.prev_btn)
+
+        self.next_btn = QPushButton("Next")
+        self.next_btn.clicked.connect(self.show_next_report)
+        nav_layout.addWidget(self.next_btn)
+
+        nav_layout.addStretch()
+        main_layout.addLayout(nav_layout)
+
+        # Table
+        self.table_widget = QTableWidget()
+        self.table_widget.setColumnCount(5)
+        self.table_widget.setHorizontalHeaderLabels(["Word", "Count", "Pct", "Z", "LogZ"])
+        main_layout.addWidget(self.table_widget)
+
+        # Initialize
+        self.update_table()
+
+    def _build_aggregated_list(self):
+        """Collect Master Report first, then others."""
         if "Master Report" in self.file_reports:
             self.reports_list.append({
                 "title": "Master Report",
                 "data": self.file_reports["Master Report"]
             })
-        # Then add all other files
-        for key, val in self.file_reports.items():
-            if key != "Master Report":
+
+        for k, v in self.file_reports.items():
+            if k != "Master Report":
                 self.reports_list.append({
-                    "title": key,
-                    "data": val
+                    "title": k,
+                    "data": v
                 })
 
-    def generate_layout(self):
-        """
-        Creates the layout with a label to display the current report name,
-        plus Previous/Next buttons to cycle through the list.
-        """
-        layout_widget = QWidget()
-        main_layout = QVBoxLayout(layout_widget)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(10)
-
-        # Title label that shows "Report X of N: short_name"
-        self.title_label = QLabel("")
-        self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("font-size: 16px; color: #FFFFFF;")
-        main_layout.addWidget(self.title_label)
-
-        # Navigation buttons
-        nav_layout = QHBoxLayout()
-
-        prev_button = QPushButton("Previous")
-        prev_button.clicked.connect(self.show_previous_report)
-        nav_layout.addWidget(prev_button)
-
-        next_button = QPushButton("Next")
-        next_button.clicked.connect(self.show_next_report)
-        nav_layout.addWidget(next_button)
-
-        nav_layout.addStretch()
-        main_layout.addLayout(nav_layout)
-
-        # Initialize the label for the current report
-        self.update_title()
-
-        return layout_widget
-
-    def show_previous_report(self):
-        if self.reports_list:
-            self.current_index = (self.current_index - 1) % len(self.reports_list)
-            self.update_title()
-
-    def show_next_report(self):
-        if self.reports_list:
-            self.current_index = (self.current_index + 1) % len(self.reports_list)
-            self.update_title()
-
-    def update_title(self):
+    def update_table(self):
         if not self.reports_list:
             self.title_label.setText("No Reports Available")
+            self.table_widget.setRowCount(0)
             return
 
         total = len(self.reports_list)
-        # current report dict
-        report_dict = self.reports_list[self.current_index]
-        report_title = report_dict["title"]
+        current_report = self.reports_list[self.current_index]
+        report_title = current_report["title"]
+        short_label = ("Master Report"
+                       if report_title == "Master Report"
+                       else os.path.basename(report_title))
+        self.title_label.setText(f"Report {self.current_index + 1} of {total}: {short_label}")
 
-        # For "Master Report," just show that. Otherwise, show the file's base name
-        if report_title == "Master Report":
-            short_name = "Master Report"
-        else:
-            short_name = os.path.basename(report_title)
+        # Extract word_stats from current_report["data"]["data"]["word_stats"]
+        data_wrapper = current_report["data"]
+        word_stats = []
+        if "data" in data_wrapper and "word_stats" in data_wrapper["data"]:
+            word_stats = data_wrapper["data"]["word_stats"]
 
-        self.title_label.setText(f"Report {self.current_index + 1} of {total}: {short_name}")
+        self.table_widget.setRowCount(len(word_stats))
+        for r_i, row_val in enumerate(word_stats):
+            # row_val = (word, count, pct, z, logz)
+            word, count, pct, z_val, logz = row_val
+            self.table_widget.setItem(r_i, 0, QTableWidgetItem(str(word)))
+            self.table_widget.setItem(r_i, 1, QTableWidgetItem(str(count)))
+            self.table_widget.setItem(r_i, 2, QTableWidgetItem(f"{pct:.2f}"))
+            self.table_widget.setItem(r_i, 3, QTableWidgetItem(f"{z_val:.2f}"))
+            self.table_widget.setItem(r_i, 4, QTableWidgetItem(f"{logz:.2f}"))
+
+        for c in range(5):
+            self.table_widget.horizontalHeader().setSectionResizeMode(c, QHeaderView.Stretch)
+
+    def show_previous_report(self):
+        print("DEBUG: show_previous_report() in FrequencyReportsLayout")
+        if self.reports_list:
+            self.current_index = (self.current_index - 1) % len(self.reports_list)
+            self.update_table()
+
+    def show_next_report(self):
+        print("DEBUG: show_next_report() in FrequencyReportsLayout")
+        if self.reports_list:
+            self.current_index = (self.current_index + 1) % len(self.reports_list)
+            self.update_table()
