@@ -1,25 +1,43 @@
-# visualization_registry.py
-
 from visualizations.metric_visualizations import (
     FrequencyDistributionVisualization,
-    FrequencyReportsAggregator
+    BOScoreBarVisualization,
+    BOScoreLineVisualization,  # Placeholder
+    BOScoreTableVisualization,  # Placeholder
+    
 )
 from visualizations.cell_layout import (
     FrequencyDistributionLayout,
-    FrequencyReportsLayout
+    FrequencyReportsLayout,
+    BOScoreBarLayout,
+    BOScoreLineLayout,  # Placeholder
+    BOScoreTableLayout  # Placeholder
 )
 
 visualization_registry = {
     "frequency_distribution": {
         "class": FrequencyDistributionVisualization,
-        # layout expects a "vis" object
         "layout": lambda vis: FrequencyDistributionLayout(vis).generate_layout(),
     },
-      "frequency_reports": {
+    "frequency_reports": {
         "class": None,
-        # Use the consistent name FrequencyReportsLayout
         "layout": lambda file_reports: FrequencyReportsLayout(file_reports),
     },
+
+    # BO Score sub-metrics
+    "bo_score_bar": {
+        "class": BOScoreBarVisualization,
+        "layout": lambda vis: BOScoreBarLayout(vis).generate_layout(),
+    },
+    "bo_score_line": {
+        "class": BOScoreLineVisualization,
+        "layout": lambda vis: BOScoreLineLayout(vis).generate_layout(),
+    },
+    "bo_score_table": {
+        "class": BOScoreTableVisualization,
+        "layout": lambda vis: BOScoreTableLayout(vis).generate_layout(),
+    },
+
+   
 }
 
 def get_visualization_class(vis_type):

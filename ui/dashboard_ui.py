@@ -160,39 +160,66 @@ class CollapsibleCellWidget(QFrame):
         self.content_layout.addWidget(widget)
 
 
-
-
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.MouseButtonPress:
+        if event.type() == QEvent.MouseMove:
             cursor_pos = self.mapFromGlobal(event.globalPos())
 
-            # Only intercept if near bottom edge → begin resizing
+            # Change cursor to resize indicator when hovering near the bottom edge
+            if self.height() - self.resize_margin <= cursor_pos.y() <= self.height():
+                self.setCursor(Qt.SizeVerCursor)
+            else:
+                self.unsetCursor()
+
+            # Handle resizing if active
+            if self.is_resizing:
+                delta_y = event.globalPos().y() - self.drag_start_pos.y()
+                new_height = max(60, self.initial_height + delta_y)  # Minimum height is 60
+
+                # Apply the new height
+                self.resize_cell(new_height)
+
+                return True  # Intercept the event during resizing
+
+        elif event.type() == QEvent.MouseButtonPress:
+            cursor_pos = self.mapFromGlobal(event.globalPos())
+
+            # Start resizing if clicking near the bottom edge
             if self.height() - self.resize_margin <= cursor_pos.y() <= self.height():
                 self.drag_start_pos = event.globalPos()
+                self.initial_height = self.height()
                 self.is_resizing = True
-                return True  # swallow
-            else:
-                return super().eventFilter(obj, event)  # pass up to child button
+                return True  # Intercept the event for resizing
 
         elif event.type() == QEvent.MouseButtonRelease:
             if self.is_resizing:
                 # End resizing
                 self.drag_start_pos = None
                 self.is_resizing = False
-                return True
-            else:
-                return super().eventFilter(obj, event)
+                self.unsetCursor()
+                return True  # Intercept the event for resizing
 
-        elif event.type() == QEvent.MouseMove:
-            # Only handle if is_resizing
-            if self.is_resizing:
-                # do the resizing
-                return True
-            else:
-                return super().eventFilter(obj, event)
-
+        # Pass all other events to the default implementation
         return super().eventFilter(obj, event)
 
+
+
+
+
+
+    def perform_resize(self, global_mouse_pos):
+        """
+        Adjust the cell's height dynamically based on mouse movement.
+        """
+        if self.drag_start_pos:
+            # Calculate the difference in vertical mouse movement
+            diff = global_mouse_pos.y() - self.drag_start_pos.y()
+
+            # Calculate the new height while enforcing a minimum size
+            new_height = max(100, self.height() + diff)  # Minimum height is 100px
+            self.resize_cell(new_height)
+
+            # Update the starting position for the next move
+            self.drag_start_pos = global_mouse_pos
 
     
     def resize_cell(self, new_height):
@@ -355,28 +382,21 @@ class DashboardWindow(QMainWindow):
         parent_font = QFont()
         parent_font.setBold(True)
 
-        freq_data = METRICS["frequency_distribution"]
-        cat_item = QTreeWidgetItem([freq_data["name"]])
-        cat_item.setFont(0, parent_font)
-        cat_item.setIcon(0, self.create_arrow_icon("right"))
-        self.metric_tree.addTopLevelItem(cat_item)
-        cat_item.setExpanded(False)
+        for category_key, category_data in METRICS.items():
+            # Create a top-level category item
+            cat_item = QTreeWidgetItem([category_data["name"]])
+            cat_item.setFont(0, parent_font)
+            self.metric_tree.addTopLevelItem(cat_item)
 
-        for sub_key, sub_data in freq_data["sub_metrics"].items():
-            name = "          " + sub_data["name"]
-            sub_item = QTreeWidgetItem(cat_item, [name])
-            sub_item.setData(0, Qt.UserRole, ("frequency_distribution", sub_key))
+            for sub_key, sub_data in category_data.get("sub_metrics", {}).items():
+                # Create sub-metric item
+                sub_item = QTreeWidgetItem(cat_item, [sub_data["name"]])
+                sub_item.setData(0, Qt.UserRole, (category_key, sub_key, None))
 
-        overlap_data = METRICS["overlap_metrics"]
-        overlap_item = QTreeWidgetItem([overlap_data["name"]])
-        overlap_item.setFont(0, parent_font)
-        overlap_item.setIcon(0, self.create_arrow_icon("right"))
-        self.metric_tree.addTopLevelItem(overlap_item)
-        overlap_item.setExpanded(False)
-        for sub_key, sub_data in overlap_data["sub_metrics"].items():
-            name = "          " + sub_data["name"]
-            sub_item = QTreeWidgetItem(overlap_item, [name])
-            sub_item.setData(0, Qt.UserRole, ("overlap_metrics", sub_key))
+                # Check for nested sub-metrics (e.g., bo_score's sub-metrics)
+                for sub_sub_key, sub_sub_data in sub_data.get("sub_metrics", {}).items():
+                    sub_sub_item = QTreeWidgetItem(sub_item, [sub_sub_data["name"]])
+                    sub_sub_item.setData(0, Qt.UserRole, (category_key, sub_key, sub_sub_key))
 
 
     def on_item_clicked(self, item, column):
@@ -404,15 +424,15 @@ class DashboardWindow(QMainWindow):
     def get_selected_metric_keys(self):
         selected_items = self.metric_tree.selectedItems()
         if not selected_items:
-            return None, None
+            return None, None, None
         item = selected_items[0]
         data = item.data(0, Qt.UserRole)
-        if data is None:
-            return None, None
-        category_key, sub_key = data
-        if sub_key is None:
-            return None, None
-        return category_key, sub_key
+        if not data:
+            return None, None, None
+        # Return 3-tuple: (category_key, sub_key, sub_sub_key)
+        return data  # Already structured as (category_key, sub_key, sub_sub_key)
+
+
 
     def add_cell(self, metric_name, content_widget):
         cell = CollapsibleCellWidget(metric_name)
@@ -483,31 +503,7 @@ class DashboardWindow(QMainWindow):
                 widget.deleteLater()
                 break
     
-    def notebook_scroll_filter(self, obj, event):
-        """
-        Intercept scroll events and route them based on the initial focus.
-        """
-        if event.type() == QEvent.Wheel and isinstance(event, QWheelEvent):
-            target_widget = QGuiApplication.widgetAt(event.globalPos())
-            
-            if target_widget:
-                # Check if the event is inside the notebook container or a specific cell
-                if target_widget is self.notebook_container or target_widget.parentWidget() is self.notebook_container:
-                    # Scroll notebook
-                    return False  # Allow default notebook scrolling
-                elif isinstance(target_widget, QTableWidget):
-                    # Forward the scroll to the table (bypass default handling)
-                    target_widget.wheelEvent(event)
-                    return True
-                elif isinstance(target_widget, QScrollArea):
-                    # Handle scroll areas specifically if needed
-                    target_widget.wheelEvent(event)
-                    return True
-
-            # Default behavior for unknown widgets
-            return False
-
-        return super().eventFilter(obj, event)
+    
 
     def install_scroll_filter(self):
         self.notebook_container.installEventFilter(self)

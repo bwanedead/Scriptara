@@ -1,5 +1,3 @@
-# metrics_registry.py
-
 METRICS = {
     "frequency_distribution": {
         "name": "Frequency Distribution",
@@ -34,6 +32,7 @@ METRICS = {
             },
         }
     },
+
     "overlap_metrics": {
         "name": "Overlap Metrics",
         "description": "Metrics that measure overlap between texts.",
@@ -45,17 +44,39 @@ METRICS = {
                 "visualization_type": "heatmap",
             },
             "bo_score": {
-                "name": "BO Score",
-                "description": "Custom overlap metric BOn1 and BOn2.",
-                "calculation_function": "advanced_analysis.calculate_bo_scores",
-                "visualization_type": "bar_chart",
-            }
-        }
-    }
+                "name": "BO Score (choose type)",
+                "description": "Custom overlap metric BOn1 and BOn2",
+                "visualization_type": None,  # parent node
+                "sub_metrics": {
+                    "bo_table": {
+                        "name": "BO Score Table",
+                        "description": "Displays BOn1/BOn2 in table form",
+                        "visualization_type": "bo_score_table",
+                    },
+                    "bo_bar": {
+                        "name": "BO Score Bar Chart",
+                        "description": "Displays BOn1/BOn2 as a bar chart",
+                        "visualization_type": "bo_score_bar",
+                    },
+                    "bo_line": {
+                        "name": "BO Score Line Chart",
+                        "description": "Displays BOn1/BOn2 as a line chart",
+                        "visualization_type": "bo_score_line",
+                    },
+                },
+            },
+            
+            
+        },
+    },
 }
 
-def get_metric(category_key, sub_key):
-    category = METRICS.get(category_key)
+def get_metric(category_key, sub_key, sub_sub_key=None):
+    category = METRICS.get(category_key, {})
     if not category:
         return None
-    return category["sub_metrics"].get(sub_key)
+    metric_data = category.get("sub_metrics", {}).get(sub_key, {})
+    if sub_sub_key:
+        return metric_data.get("sub_metrics", {}).get(sub_sub_key)
+    return metric_data
+
