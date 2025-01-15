@@ -245,20 +245,26 @@ class BOScoreBarLayout:
         bon1_btn.setText("Toggle BOn1")
         bon1_btn.setCheckable(True)
         bon1_btn.setChecked(self.show_bon1)
-        bon1_btn.toggled.connect(self.on_bon1_toggle)
+        bon1_btn.clicked.connect(
+            lambda: print("[DEBUG] bon1_btn clicked (signal emitted)") or self.on_bon1_toggle_click()
+        )
+        bon1_btn.setFocusPolicy(Qt.ClickFocus)  # Ensure it can receive focus
         controls_layout.addWidget(bon1_btn)
         self.widgets['bon1_button'] = bon1_btn  # Prevent GC
-        print("[DEBUG] Connected bon1_btn toggled signal.")
+        print("[DEBUG] Connected bon1_btn clicked signal.")
 
         # Toggle BOn2 button
         bon2_btn = QToolButton()
         bon2_btn.setText("Toggle BOn2")
         bon2_btn.setCheckable(True)
         bon2_btn.setChecked(self.show_bon2)
-        bon2_btn.toggled.connect(self.on_bon2_toggle)
+        bon2_btn.clicked.connect(
+            lambda: print("[DEBUG] bon2_btn clicked (signal emitted)") or self.on_bon2_toggle_click()
+        )
+        bon2_btn.setFocusPolicy(Qt.ClickFocus)  # Ensure it can receive focus
         controls_layout.addWidget(bon2_btn)
         self.widgets['bon2_button'] = bon2_btn  # Prevent GC
-        print("[DEBUG] Connected bon2_btn toggled signal.")
+        print("[DEBUG] Connected bon2_btn clicked signal.")
 
         controls_layout.addStretch()
         layout.addLayout(controls_layout)
@@ -298,15 +304,18 @@ class BOScoreBarLayout:
             bar_item2 = BarGraphItem(x=x_vals2, height=y_vals2, width=0.3, brush='g')
             plot_item.addItem(bar_item2)
 
-    def on_bon1_toggle(self, checked):
-        print(f"[DEBUG] on_bon1_toggle called with checked={checked}")
-        self.show_bon1 = checked
+    def on_bon1_toggle_click(self):
+        print("[DEBUG] on_bon1_toggle_click called")
+        self.show_bon1 = not self.show_bon1
         self.update_plot()
+        print(f"[DEBUG] on_bon1_toggle_click -> show_bon1: {self.show_bon1}")
 
-    def on_bon2_toggle(self, checked):
-        print(f"[DEBUG] on_bon2_toggle called with checked={checked}")
-        self.show_bon2 = checked
+    def on_bon2_toggle_click(self):
+        print("[DEBUG] on_bon2_toggle_click called")
+        self.show_bon2 = not self.show_bon2
         self.update_plot()
+        print(f"[DEBUG] on_bon2_toggle_click -> show_bon2: {self.show_bon2}")
+
 
 
 
@@ -316,17 +325,23 @@ class BOScoreBarLayout:
 
 class BOScoreLineLayout:
     """
-    Renders line plots for BOn1 and BOn2 using PyQtGraph.
-    We could also add toggles for log-scale, or whether to show/hide BOn1/BOn2.
+    Renders a line graph using pyqtgraph for BOn1 and BOn2 data.
+    Includes toggle buttons to show/hide each dataset and scale options.
     """
+
     def __init__(self, vis):
-        self.vis = vis  # Instance of BOScoreLineVisualization
+        self.vis = vis  # Instance of BOScoreBarVisualization
         self.plot_widget = None
-        # Let's store some toggles to optionally show/hide each curve
-        self.show_bon1 = True
-        self.show_bon2 = True
-        self.x_log = False
-        self.y_log = False
+
+        # Toggles for visibility and scaling
+        self.show_bon1 = True  # Default to showing BOn1
+        self.show_bon2 = False  # Default to hiding BOn2
+        self.x_log_scale = False  # Default to linear X-axis
+        self.y_log_scale = False  # Default to linear Y-axis
+
+        # Store references to prevent garbage collection
+        self.widgets = {}
+        print("[DEBUG] BOScoreLineLayout initialized.")
 
     def generate_layout(self):
         layout_widget = QWidget()
@@ -334,99 +349,129 @@ class BOScoreLineLayout:
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
-        title_label = QLabel("BO Score Line Chart")
+        # Title
+        title_label = QLabel("BO Score Line Graph")
         title_label.setStyleSheet("color: #fff; font-size:16px;")
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
 
-        # Optional controls row
+        # Controls for toggling visibility and scaling
         controls_layout = QHBoxLayout()
 
+        # Toggle BOn1 button
         bon1_btn = QToolButton()
         bon1_btn.setText("Toggle BOn1")
         bon1_btn.setCheckable(True)
-        bon1_btn.setChecked(True)
-        bon1_btn.toggled.connect(self.on_bon1_toggle)
+        bon1_btn.setChecked(self.show_bon1)
+        bon1_btn.clicked.connect(
+            lambda: print("[DEBUG] bon1_btn clicked (signal emitted)") or self.on_bon1_toggle_click()
+        )
+        bon1_btn.setFocusPolicy(Qt.ClickFocus)  # Ensure it can receive focus
         controls_layout.addWidget(bon1_btn)
+        self.widgets['bon1_button'] = bon1_btn  # Prevent GC
+        print("[DEBUG] Connected bon1_btn clicked signal.")
 
+        # Toggle BOn2 button
         bon2_btn = QToolButton()
         bon2_btn.setText("Toggle BOn2")
         bon2_btn.setCheckable(True)
-        bon2_btn.setChecked(True)
-        bon2_btn.toggled.connect(self.on_bon2_toggle)
+        bon2_btn.setChecked(self.show_bon2)
+        bon2_btn.clicked.connect(
+            lambda: print("[DEBUG] bon2_btn clicked (signal emitted)") or self.on_bon2_toggle_click()
+        )
+        bon2_btn.setFocusPolicy(Qt.ClickFocus)  # Ensure it can receive focus
         controls_layout.addWidget(bon2_btn)
+        self.widgets['bon2_button'] = bon2_btn  # Prevent GC
+        print("[DEBUG] Connected bon2_btn clicked signal.")
 
+        # Toggle X-axis log scale button
         x_log_btn = QToolButton()
-        x_log_btn.setText("X Log")
+        x_log_btn.setText("X Log Scale")
         x_log_btn.setCheckable(True)
-        x_log_btn.setChecked(False)
-        x_log_btn.toggled.connect(self.on_x_log_toggled)
+        x_log_btn.setChecked(self.x_log_scale)
+        x_log_btn.clicked.connect(
+            lambda: print("[DEBUG] x_log_btn clicked (signal emitted)") or self.on_x_log_scale_toggle_click()
+        )
+        x_log_btn.setFocusPolicy(Qt.ClickFocus)  # Ensure it can receive focus
         controls_layout.addWidget(x_log_btn)
+        self.widgets['x_log_button'] = x_log_btn  # Prevent GC
+        print("[DEBUG] Connected x_log_btn clicked signal.")
 
+        # Toggle Y-axis log scale button
         y_log_btn = QToolButton()
-        y_log_btn.setText("Y Log")
+        y_log_btn.setText("Y Log Scale")
         y_log_btn.setCheckable(True)
-        y_log_btn.setChecked(False)
-        y_log_btn.toggled.connect(self.on_y_log_toggled)
+        y_log_btn.setChecked(self.y_log_scale)
+        y_log_btn.clicked.connect(
+            lambda: print("[DEBUG] y_log_btn clicked (signal emitted)") or self.on_y_log_scale_toggle_click()
+        )
+        y_log_btn.setFocusPolicy(Qt.ClickFocus)  # Ensure it can receive focus
         controls_layout.addWidget(y_log_btn)
+        self.widgets['y_log_button'] = y_log_btn  # Prevent GC
+        print("[DEBUG] Connected y_log_btn clicked signal.")
 
         controls_layout.addStretch()
         layout.addLayout(controls_layout)
 
-        # Create the PlotWidget
+        # Plot widget
         self.plot_widget = PlotWidget()
         self.plot_widget.setBackground('k')
+        self.plot_widget.getPlotItem().setLabel("bottom", "Rank")
+        self.plot_widget.getPlotItem().setLabel("left", "BO Score")
         layout.addWidget(self.plot_widget)
 
         # Draw lines initially
         self.update_plot()
 
+        self.widgets['layout_widget'] = layout_widget  # Prevent GC
         return layout_widget
 
     def update_plot(self):
+        print(f"[DEBUG] update_plot called. show_bon1={self.show_bon1}, show_bon2={self.show_bon2}, x_log_scale={self.x_log_scale}, y_log_scale={self.y_log_scale}")
         bon1_data, bon2_data = self.vis.get_data()
 
         self.plot_widget.clear()
         plot_item = self.plot_widget.getPlotItem()
 
-        # Set log modes (if toggled)
-        plot_item.setLogMode(self.x_log, self.y_log)
+        # Apply log scale if enabled
+        plot_item.setLogMode(x=self.x_log_scale, y=self.y_log_scale)
 
-        # BOn1 line
+        # Plot BOn1 curve in red if enabled
         if self.show_bon1 and bon1_data:
-            x_vals = np.arange(1, len(bon1_data)+1)
-            y_vals = [val for (_, val) in bon1_data]
-            pen = mkPen(color='r', width=2)
-            plot_item.plot(x_vals, y_vals, pen=pen, name="BOn1", clear=False)
+            x_vals = [i + 1 for i in range(len(bon1_data))]
+            y_vals = [score for (_, score) in bon1_data]
+            plot_item.plot(x_vals, y_vals, pen='r', name="BOn1")
 
-        # BOn2 line
+        # Plot BOn2 curve in green if enabled
         if self.show_bon2 and bon2_data:
-            x_vals = np.arange(1, len(bon2_data)+1)
-            y_vals = [val for (_, val) in bon2_data]
-            pen = mkPen(color='g', width=2)
-            plot_item.plot(x_vals, y_vals, pen=pen, name="BOn2", clear=False)
+            x_vals2 = [i + 1 for i in range(len(bon2_data))]
+            y_vals2 = [score for (_, score) in bon2_data]
+            plot_item.plot(x_vals2, y_vals2, pen='g', name="BOn2")
 
-        plot_item.setLabel("bottom", "Rank")
-        plot_item.setLabel("left",  "BO Score")
-        plot_item.enableAutoRange()
-        plot_item.autoRange()
-
-    # --- Toggled slots ---
-    def on_bon1_toggle(self, checked):
-        self.show_bon1 = checked
+    def on_bon1_toggle_click(self):
+        print("[DEBUG] on_bon1_toggle_click called")
+        self.show_bon1 = not self.show_bon1
         self.update_plot()
+        print(f"[DEBUG] on_bon1_toggle_click -> show_bon1: {self.show_bon1}")
 
-    def on_bon2_toggle(self, checked):
-        self.show_bon2 = checked
+    def on_bon2_toggle_click(self):
+        print("[DEBUG] on_bon2_toggle_click called")
+        self.show_bon2 = not self.show_bon2
         self.update_plot()
+        print(f"[DEBUG] on_bon2_toggle_click -> show_bon2: {self.show_bon2}")
 
-    def on_x_log_toggled(self, checked):
-        self.x_log = checked
+    def on_x_log_scale_toggle_click(self):
+        print("[DEBUG] on_x_log_scale_toggle_click called")
+        self.x_log_scale = not self.x_log_scale
         self.update_plot()
+        print(f"[DEBUG] on_x_log_scale_toggle_click -> x_log_scale: {self.x_log_scale}")
 
-    def on_y_log_toggled(self, checked):
-        self.y_log = checked
+    def on_y_log_scale_toggle_click(self):
+        print("[DEBUG] on_y_log_scale_toggle_click called")
+        self.y_log_scale = not self.y_log_scale
         self.update_plot()
+        print(f"[DEBUG] on_y_log_scale_toggle_click -> y_log_scale: {self.y_log_scale}")
+
 
 
 class BOScoreTableLayout:
