@@ -4,13 +4,14 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
     QTreeWidget, QTreeWidgetItem, QPushButton, QLabel, QMenuBar, 
     QMenu, QAction, QFrame, QTableWidget, QTableWidgetItem, QSizePolicy, QToolButton, QSizeGrip, QHeaderView, 
-    QSplitter
+    QSplitter, QInputDialog, QDialog, QMessageBox
 )
 from PyQt5.QtGui import QGuiApplication, QFont, QPixmap, QPainter, QBrush, QPen, QIcon, QColor, QWheelEvent
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QEvent, QRect
 from ui.styles import dark_mode_stylesheet, light_mode_stylesheet, dim_mode_stylesheet
 from config.metric_registry import METRICS, get_metric
 from visualizations.cell_factory import create_cell
+import os
 
 
 
@@ -253,18 +254,112 @@ class DashboardWindow(QMainWindow):
         splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(splitter)
 
-        # Left panel
+        # Left panel with Corpora Viewer section
         left_panel = QWidget()
         left_panel.setObjectName("PanelArea")
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(5, 5, 5, 5)
         left_layout.setSpacing(5)
 
-        title_label = QLabel("Metrics Panel")
-        title_label.setObjectName("SidePanelTitle")
-        title_label.setAlignment(Qt.AlignLeft)
-        title_label.setContentsMargins(10, 0, 0, 5)
-        left_layout.addWidget(title_label)
+        # Corpora Viewer Section
+        self.corpora_viewer_container = QWidget()
+        corpora_viewer_main_layout = QVBoxLayout(self.corpora_viewer_container)
+        corpora_viewer_main_layout.setContentsMargins(0, 0, 0, 0)
+        corpora_viewer_main_layout.setSpacing(0)
+
+        # Header: fixed height with title, add button, and toggle button
+        self.corpora_viewer_header = QWidget()
+        header_layout = QHBoxLayout(self.corpora_viewer_header)
+        header_layout.setContentsMargins(10, 5, 10, 5)
+        header_layout.setSpacing(5)
+        
+        # Title with count
+        self.corpora_title_label = QLabel("Corpora (0)")
+        self.corpora_title_label.setObjectName("SidePanelSubTitle")
+        self.corpora_title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header_layout.addWidget(self.corpora_title_label)
+        header_layout.addStretch()
+        
+        # Add corpus button (plus sign)
+        self.add_corpus_button = QToolButton()
+        self.add_corpus_button.setText("+")
+        self.add_corpus_button.setToolTip("Add Corpus")
+        self.add_corpus_button.setStyleSheet("""
+            QToolButton {
+                border: none;
+                color: #888888;
+                padding: 2px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+            }
+        """)
+        header_layout.addWidget(self.add_corpus_button)
+        
+        # Toggle button
+        self.toggle_corpora_button = QToolButton()
+        self.toggle_corpora_button.setText("▶")
+        self.toggle_corpora_button.setToolTip("Expand Corpora Viewer")
+        self.toggle_corpora_button.setStyleSheet("""
+            QToolButton {
+                border: none;
+                color: #888888;
+                padding: 2px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+            }
+        """)
+        header_layout.addWidget(self.toggle_corpora_button)
+        
+        # Make header fixed vertically
+        self.corpora_viewer_header.setSizePolicy(
+            QSizePolicy.Preferred, 
+            QSizePolicy.Fixed
+        )
+        
+        corpora_viewer_main_layout.addWidget(self.corpora_viewer_header)
+
+        # Expandable tree container
+        self.corpora_tree_container = QWidget()
+        tree_layout = QVBoxLayout(self.corpora_tree_container)
+        tree_layout.setContentsMargins(10, 0, 10, 0)
+        tree_layout.setSpacing(0)
+        
+        self.corpora_tree = QTreeWidget()
+        self.corpora_tree.setHeaderHidden(True)
+        self.corpora_tree.setIndentation(15)
+        self.corpora_tree.setStyleSheet("""
+            QTreeWidget {
+                background-color: transparent;
+                border: none;
+            }
+            QTreeWidget::item {
+                padding: 4px;
+            }
+            QTreeWidget::item:hover {
+                background-color: #3a3a3a;
+            }
+        """)
+        tree_layout.addWidget(self.corpora_tree)
+        
+        # Initially collapsed
+        self.corpora_tree_container.setVisible(False)
+        corpora_viewer_main_layout.addWidget(self.corpora_tree_container)
+        
+        left_layout.addWidget(self.corpora_viewer_container)
+
+        # Connect signals
+        self.add_corpus_button.clicked.connect(self.on_add_corpus)
+        self.toggle_corpora_button.clicked.connect(self.toggle_corpora_viewer)
+        self.corpora_tree.itemClicked.connect(self.on_corpus_item_clicked)
+
+        # Add existing metrics panel section
+        metrics_title_label = QLabel("Metrics Panel")
+        metrics_title_label.setObjectName("SidePanelTitle")
+        metrics_title_label.setAlignment(Qt.AlignLeft)
+        metrics_title_label.setContentsMargins(10, 0, 0, 5)
+        left_layout.addWidget(metrics_title_label)
 
         self.metric_tree = QTreeWidget()
         self.metric_tree.setHeaderHidden(True)
@@ -309,6 +404,11 @@ class DashboardWindow(QMainWindow):
 
         self.set_dark_mode()
         self.resize_to_screen()
+        
+        # Ensure we have access to the main controller's corpora
+        if hasattr(self.controller, 'main_controller'):
+            self.main_controller = self.controller.main_controller
+            self.populate_corpora_tree()  # Initial population
 
 
     def resize_to_screen(self):
@@ -540,3 +640,284 @@ class DashboardWindow(QMainWindow):
         """
         scroll_bar = self.scroll_area.verticalScrollBar()
         scroll_bar.setValue(position)
+
+    def toggle_corpora_viewer(self):
+        """Toggle the visibility of the corpora tree container."""
+        if self.corpora_tree_container.isVisible():
+            self.corpora_tree_container.setVisible(False)
+            self.toggle_corpora_button.setText("▶")
+            self.toggle_corpora_button.setToolTip("Expand Corpora Viewer")
+        else:
+            self.corpora_tree_container.setVisible(True)
+            self.toggle_corpora_button.setText("▼")
+            self.toggle_corpora_button.setToolTip("Collapse Corpora Viewer")
+
+    def populate_corpora_tree(self):
+        """
+        Populate the corpora tree with available corpora and their files.
+        Each corpus shows its file count and contained files when expanded.
+        """
+        self.corpora_tree.clear()
+        
+        if hasattr(self, 'main_controller') and hasattr(self.main_controller, 'corpora'):
+            corpora = self.main_controller.corpora
+            total_count = len(corpora)
+            self.corpora_title_label.setText(f"Corpora ({total_count})")
+            
+            for corpus_name, corpus in corpora.items():
+                # Create corpus header widget
+                header_widget = QWidget()
+                header_layout = QHBoxLayout(header_widget)
+                header_layout.setContentsMargins(5, 2, 5, 2)
+                
+                # Get file count
+                files = corpus.get_files() if hasattr(corpus, 'get_files') else []
+                file_count = len(files)
+                
+                # Corpus name and count
+                name_label = QLabel(f"{corpus_name} ({file_count})")
+                header_layout.addWidget(name_label)
+                header_layout.addStretch()
+                
+                # Management buttons
+                manage_btn = QToolButton()
+                manage_btn.setText("⚙")  # Gear icon
+                manage_btn.setToolTip("Manage Files")
+                manage_btn.clicked.connect(lambda _, c=corpus_name: self.manage_corpus_files(c))
+                
+                remove_btn = QToolButton()
+                remove_btn.setText("−")  # Minus sign
+                remove_btn.setToolTip("Remove Corpus")
+                remove_btn.clicked.connect(lambda _, c=corpus_name: self.remove_corpus(c))
+                
+                header_layout.addWidget(manage_btn)
+                header_layout.addWidget(remove_btn)
+                
+                # Create corpus item
+                corpus_item = QTreeWidgetItem()
+                corpus_item.setFlags(corpus_item.flags() | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                self.corpora_tree.addTopLevelItem(corpus_item)
+                self.corpora_tree.setItemWidget(corpus_item, 0, header_widget)
+                
+                # Add files as child items
+                for file_path in files:
+                    file_item = QTreeWidgetItem([os.path.basename(file_path)])
+                    file_item.setToolTip(0, file_path)
+                    file_item.setForeground(0, QColor("#aaaaaa"))
+                    corpus_item.addChild(file_item)
+                
+                # Add the "Add Files" button as a child item
+                add_files_item = QTreeWidgetItem(["+ Add Files"])
+                add_files_item.setForeground(0, QColor("#888888"))
+                add_files_item.setData(0, Qt.UserRole, "add_files_action")
+                corpus_item.addChild(add_files_item)
+                
+                print(f"Added corpus to tree: {corpus_name} with {file_count} files")
+
+    def manage_corpus_files(self, corpus_name):
+        """Open file management dialog for a corpus."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Manage Files - {corpus_name}")
+        dialog.setWindowFlags(Qt.FramelessWindowHint)  # Remove window frame
+        dialog.resize(900, 600)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins
+        
+        # Custom title bar
+        title_bar = QWidget()
+        title_bar.setStyleSheet("background-color: #1e1e1e;")
+        title_bar.setFixedHeight(40)
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(15, 0, 15, 0)
+        
+        title_label = QLabel("Select Files to Remove")
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        
+        close_btn = QToolButton()
+        close_btn.setText("✕")
+        close_btn.setStyleSheet("""
+            QToolButton {
+                color: #888888;
+                border: none;
+                font-size: 16px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+                background-color: #c42b1c;
+            }
+        """)
+        close_btn.clicked.connect(dialog.close)
+        
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        title_layout.addWidget(close_btn)
+        
+        # Main content
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(15, 15, 15, 15)
+        
+        # File list with selection
+        file_list = QTreeWidget()
+        file_list.setHeaderHidden(True)  # Hide the header
+        file_list.setSelectionMode(QTreeWidget.ExtendedSelection)
+        file_list.setStyleSheet("""
+            QTreeWidget {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+            }
+            QTreeWidget::item {
+                padding: 5px;
+            }
+            QTreeWidget::item:selected {
+                background-color: #4a4a4a;
+            }
+            QTreeWidget::item:hover {
+                background-color: #363636;
+            }
+        """)
+        
+        # Get files from corpus
+        corpus = self.main_controller.corpora[corpus_name]
+        for file_path in corpus.get_files():
+            item = QTreeWidgetItem([os.path.basename(file_path)])
+            item.setToolTip(0, file_path)
+            file_list.addTopLevelItem(item)
+        
+        content_layout.addWidget(file_list)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        remove_btn = QPushButton("Remove Selected")
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;
+                color: white;
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #b71c1c;
+            }
+        """)
+        remove_btn.clicked.connect(lambda: self.remove_selected_files(corpus_name, file_list, dialog))
+        
+        cancel_btn = QPushButton("Close")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #424242;
+                color: white;
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #616161;
+            }
+        """)
+        cancel_btn.clicked.connect(dialog.close)
+        
+        button_layout.addWidget(remove_btn)
+        button_layout.addWidget(cancel_btn)
+        button_layout.addStretch()
+        content_layout.addLayout(button_layout)
+        
+        # Add all components to main layout
+        layout.addWidget(title_bar)
+        layout.addWidget(content)
+        
+        # Make window draggable from title bar
+        def mousePressEvent(event):
+            if event.button() == Qt.LeftButton:
+                dialog._drag_pos = event.globalPos() - dialog.pos()
+                event.accept()
+
+        def mouseMoveEvent(event):
+            if event.buttons() & Qt.LeftButton:
+                dialog.move(event.globalPos() - dialog._drag_pos)
+                event.accept()
+
+        title_bar.mousePressEvent = mousePressEvent
+        title_bar.mouseMoveEvent = mouseMoveEvent
+        
+        dialog.exec_()
+
+    def remove_selected_files(self, corpus_name, file_list, dialog):
+        """Remove selected files from corpus after confirmation."""
+        selected_items = file_list.selectedItems()
+        if not selected_items:
+            return
+        
+        selected_files = [item.toolTip(0) for item in selected_items]
+        
+        if selected_files:
+            reply = QMessageBox.question(
+                self,
+                "Remove Files",
+                f"Remove {len(selected_files)} files from {corpus_name}?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                corpus = self.main_controller.corpora[corpus_name]
+                for file_path in selected_files:
+                    corpus.remove_file(file_path)
+                self.populate_corpora_tree()
+                dialog.close()
+
+    def remove_corpus(self, corpus_name):
+        """Remove entire corpus after confirmation."""
+        reply = QMessageBox.question(
+            self,
+            "Remove Corpus",
+            f"Remove entire corpus '{corpus_name}'?\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            if hasattr(self.main_controller, 'remove_corpus'):
+                self.main_controller.remove_corpus(corpus_name)
+                self.populate_corpora_tree()
+
+    def on_corpus_item_clicked(self, item, column):
+        """Handle clicks on corpus items."""
+        if not item.parent():  # Top-level item (corpus)
+            # Toggle expansion state
+            item.setExpanded(not item.isExpanded())
+            
+            # Get corpus name from header widget
+            header_widget = self.corpora_tree.itemWidget(item, 0)
+            if header_widget:
+                name_label = header_widget.findChild(QLabel)
+                if name_label:
+                    corpus_name = name_label.text().split(" (")[0]
+                    if hasattr(self.main_controller, 'set_active_corpus'):
+                        self.main_controller.set_active_corpus(corpus_name)
+                        print(f"Selected corpus: {corpus_name}")
+        else:  # Child item
+            if item.data(0, Qt.UserRole) == "add_files_action":
+                corpus_name = item.parent().text(0).split(" (")[0]
+                if hasattr(self.main_controller, 'add_files_to_corpus'):
+                    self.main_controller.add_files_to_corpus(corpus_name)
+                    self.populate_corpora_tree()
+
+    def on_add_corpus(self):
+        """Handle adding a new corpus."""
+        new_corpus_name, ok = QInputDialog.getText(self, "Add Corpus", "Enter name for new corpus:")
+        if ok and new_corpus_name:
+            if hasattr(self, 'main_controller'):
+                self.main_controller.add_corpus(new_corpus_name)
+                self.populate_corpora_tree()  # Refresh the tree
+                print(f"Added new corpus: {new_corpus_name}")
+            else:
+                print("Error: No main_controller available")

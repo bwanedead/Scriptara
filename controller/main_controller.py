@@ -326,3 +326,47 @@ class MainController(QObject):
         else:
             logging.warning("No Default Corpus exists to rename.")
 
+    def add_corpus(self, corpus_name):
+        """Add a new corpus to the controller."""
+        if not hasattr(self, 'corpora'):
+            self.corpora = {}
+        
+        if corpus_name not in self.corpora:
+            new_corpus = Corpus(name=corpus_name)
+            self.corpora[corpus_name] = new_corpus
+            print(f"[DEBUG] Added new corpus: {corpus_name}")
+        else:
+            print(f"[DEBUG] Corpus {corpus_name} already exists.")
+
+    def add_files_to_corpus(self, corpus_name):
+        """Add files to a specific corpus."""
+        if corpus_name in self.corpora:
+            options = QFileDialog.Options()
+            files, _ = QFileDialog.getOpenFileNames(
+                self.view, 
+                f"Import Files for {corpus_name}", 
+                "",
+                "Text Files (*.txt);;All Files (*)",
+                options=options
+            )
+            if files:
+                corpus = self.corpora[corpus_name]
+                for file in files:
+                    corpus.add_file(file)
+                print(f"[DEBUG] Added files to corpus {corpus_name}: {files}")
+                
+                # If we have a dashboard open, refresh its tree
+                if hasattr(self, 'dashboard_controller') and \
+                   hasattr(self.dashboard_controller.view, 'populate_corpora_tree'):
+                    self.dashboard_controller.view.populate_corpora_tree()
+        else:
+            print(f"[DEBUG] Corpus {corpus_name} not found.")
+
+    def remove_corpus(self, corpus_name):
+        """Remove a corpus from the controller."""
+        if corpus_name in self.corpora:
+            del self.corpora[corpus_name]
+            print(f"[DEBUG] Removed corpus: {corpus_name}")
+        else:
+            print(f"[DEBUG] Corpus {corpus_name} not found.")
+

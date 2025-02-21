@@ -3,6 +3,7 @@
 from ui.dashboard_ui import DashboardWindow
 from config.metric_registry import get_metric, METRICS
 from visualizations.cell_factory import create_cell
+from model.corpora import Corpus  # Add this import
 
 class DashboardController:
     def __init__(self, main_controller=None):
@@ -13,7 +14,25 @@ class DashboardController:
     def show(self):
         if not self.view:
             self.view = DashboardWindow(controller=self)
+            # Ensure the view has access to main_controller
+            self.view.main_controller = self.main_controller
         self.view.show()
+
+    def add_corpus(self, corpus_name):
+        """Delegate corpus addition to main controller."""
+        if self.main_controller and hasattr(self.main_controller, 'add_corpus'):
+            self.main_controller.add_corpus(corpus_name)
+            if self.view:
+                self.view.populate_corpora_tree()
+        else:
+            print("[ERROR] Cannot add corpus - main controller not available")
+
+    def set_active_corpus(self, corpus_name):
+        """Delegate setting active corpus to main controller."""
+        if self.main_controller and hasattr(self.main_controller, 'set_active_corpus'):
+            self.main_controller.set_active_corpus(corpus_name)
+        else:
+            print("[ERROR] Cannot set active corpus - main controller not available")
 
     def add_selected_metric(self, item=None, column=None):
         if not self.view:
