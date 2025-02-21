@@ -15,6 +15,7 @@ from tests.assurance_tests import (
     independent_rank_count,
     independent_total_from_counts
 )
+from model.corpora import Corpus  # Add this import
 
 
 class MainController(QObject):
@@ -30,6 +31,9 @@ class MainController(QObject):
         self.word_frequencies = {}
         self.percentage_frequencies = {}
         self.z_scores = {}
+        # New multi-corpus structure
+        self.corpora = {}
+        self.active_corpus = None
 
     def connect_signals(self):
         self.view.import_files_signal.connect(self.import_files)
@@ -39,6 +43,7 @@ class MainController(QObject):
         self.view.previous_report_signal.connect(self.previous_report)
         self.view.dashboard_signal.connect(self.launch_dashboard)
         self.view.load_sample_corpus_signal.connect(self.load_sample_corpus)
+        self.view.rename_corpus_signal.connect(self.rename_default_corpus)
 
     def import_files(self, sample_corpus=False):
         """Handles importing files from the UI or loading the sample corpus."""
@@ -70,6 +75,17 @@ class MainController(QObject):
                 new_files = set(files) - self.imported_files
                 self.imported_files.update(new_files)
                 self.view.update_file_list(list(self.imported_files))
+                
+                # Wrap imported files into the default corpus
+                if "Default Corpus" not in self.corpora:
+                    default_corpus = Corpus(name="Default Corpus", file_paths=list(new_files))
+                    self.corpora["Default Corpus"] = default_corpus
+                    self.active_corpus = default_corpus
+                else:
+                    default_corpus = self.corpora["Default Corpus"]
+                    for file in new_files:
+                        default_corpus.add_file(file)
+                logging.info(f"Imported files stored in Default Corpus: {default_corpus}")
             else:
                 logging.debug("No files selected or sample corpus is empty.")
         
@@ -298,4 +314,15 @@ class MainController(QObject):
 
         # Call show() on the dashboard_controller to create and display the dashboard
         self.dashboard_controller.show()
+
+    def rename_default_corpus(self, new_name):
+        """Rename the default corpus based on user input."""
+        if "Default Corpus" in self.corpora:
+            old_corpus = self.corpora.pop("Default Corpus")
+            old_corpus.name = new_name
+            self.corpora[new_name] = old_corpus
+            self.active_corpus = old_corpus
+            logging.info(f"Default Corpus renamed to: {new_name}")
+        else:
+            logging.warning("No Default Corpus exists to rename.")
 

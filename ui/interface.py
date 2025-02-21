@@ -4,7 +4,8 @@ from PyQt5.QtWidgets import (
     QMainWindow, QListWidget, QVBoxLayout, QWidget,
     QPushButton, QHBoxLayout, QTextEdit, QAction, 
     QMessageBox, QTableWidget, QTableWidgetItem, 
-    QAbstractItemView, QHeaderView, QLabel, QListWidgetItem
+    QAbstractItemView, QHeaderView, QLabel, QListWidgetItem,
+    QInputDialog
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 from PyQt5.QtGui import QIcon, QColor, QBrush
@@ -26,6 +27,7 @@ class MainWindow(QMainWindow):
     previous_report_signal = pyqtSignal()
     dashboard_signal = pyqtSignal()
     load_sample_corpus_signal = pyqtSignal()
+    rename_corpus_signal = pyqtSignal(str)  # New signal for renaming corpus
 
     def __init__(self):
         super().__init__()
@@ -44,6 +46,7 @@ class MainWindow(QMainWindow):
         self.dashboard_button.clicked.connect(self.dashboard_signal.emit)
         self.next_report_button.clicked.connect(self.next_report_signal.emit)
         self.previous_report_button.clicked.connect(self.previous_report_signal.emit)
+        self.rename_corpus_button.clicked.connect(self.prompt_rename_corpus)
 
 
     def init_ui(self):
@@ -63,6 +66,32 @@ class MainWindow(QMainWindow):
 
         # Left pane
         file_layout = QVBoxLayout()
+        
+        # Add corpus name and rename button at the top
+        corpus_header = QHBoxLayout()
+        self.corpus_label = QLabel("Current Corpus: Default Corpus")
+        self.corpus_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        
+        self.rename_corpus_button = QPushButton("✎")  # Unicode edit symbol
+        self.rename_corpus_button.setToolTip("Rename Corpus")
+        self.rename_corpus_button.setFixedSize(24, 24)  # Make button small and square
+        self.rename_corpus_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f0f0f5;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0ee;
+            }
+        """)
+        
+        corpus_header.addWidget(self.corpus_label)
+        corpus_header.addWidget(self.rename_corpus_button)
+        file_layout.addLayout(corpus_header)
+
+        # Import list and other buttons
         self.import_list = QListWidget()
         self.import_list.setSelectionMode(QListWidget.MultiSelection)
         file_layout.addWidget(self.import_list)
@@ -299,4 +328,11 @@ class MainWindow(QMainWindow):
                             item.setBackground(QColor(245, 245, 255))  # Light purple/white
                         else:
                             item.setBackground(QColor(225, 225, 245))  # Muted purple
+
+    def prompt_rename_corpus(self):
+        """Prompts the user for a new corpus name and emits the rename signal."""
+        new_name, ok = QInputDialog.getText(self, "Rename Corpus", "Enter new corpus name:")
+        if ok and new_name:
+            self.rename_corpus_signal.emit(new_name)
+            self.corpus_label.setText("Current Corpus: " + new_name)
 
