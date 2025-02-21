@@ -71,31 +71,36 @@ class DashboardController:
             file_reports, 
             category_key, 
             sub_key, 
-            sub_sub_key=sub_sub_key,  # Explicitly pass sub_sub_key
+            sub_sub_key=sub_sub_key,
             initial_mode=initial_mode
         )
 
         if cell_widget:
+            # Connect refresh signal
+            if hasattr(cell_widget, 'refresh_requested'):
+                cell_widget.refresh_requested.connect(
+                    lambda: self.refresh_cell_data(cell_widget)
+                )
             cell = self.view.add_cell(metric_name, cell_widget)
-
-            # Connect signals to handle cell actions
-            cell.remove_requested.connect(lambda title=cell.title: self.remove_metric_cell_instance(cell))
-            cell.duplicate_requested.connect(lambda: self.duplicate_metric_cell(metric_name, cell))
-            cell.move_up_requested.connect(lambda: self.move_metric_cell_up(cell))
-            cell.move_down_requested.connect(lambda: self.move_metric_cell_down(cell))
-
-            # Store metadata for this cell
             self.cell_data_map[cell] = {
                 "category_key": category_key,
                 "sub_key": sub_key,
                 "sub_sub_key": sub_sub_key,
-                "visualization_type": visualization_type,
-                "initial_mode": initial_mode,
+                "name": metric_name,
+                "initial_mode": initial_mode
             }
             print(f"[DEBUG] Metric cell added for {metric_name}.")
         else:
             print("[ERROR] Cell widget creation failed.")
 
+    def refresh_cell_data(self, cell_widget):
+        """Refresh a cell's data from the current analysis."""
+        if self.main_controller:
+            # Re-run analysis to update file_reports
+            self.main_controller.run_analysis()
+            # Update the cell's visualization with new data
+            if hasattr(cell_widget, 'update_data'):
+                cell_widget.update_data(self.main_controller.file_reports)
 
     def remove_metric_cell(self, metric_name):
         """
@@ -168,5 +173,34 @@ class DashboardController:
             self.view.notebook_layout.removeWidget(cell)  # Remove cell from the layout
             cell.setParent(None)  # Detach from the parent
             cell.deleteLater()  # Schedule for deletion
+
+    def refresh_visualizations(self):
+        """Refresh all visualization cells with new data."""
+        if self.view:
+            # Store current cell configurations
+            cell_configs = []
+            for i in range(self.view.notebook_layout.count()):
+                cell = self.view.notebook_layout.itemAt(i).widget()
+                if cell and cell in self.cell_data_map:
+                    cell_configs.append(self.cell_data_map[cell])
+            
+            # Clear existing cells
+            while self.view.notebook_layout.count():
+                item = self.view.notebook_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            
+            # Recreate cells with new data
+            for config in cell_configs:
+                cell_widget = create_cell(
+                    self.main_controller.file_reports,
+                    config["category_key"],
+                    config["sub_key"],
+                    sub_sub_key=config.get("sub_sub_key"),
+                    initial_mode=config.get("initial_mode", "nominal")
+                )
+                if cell_widget:
+                    cell = self.view.add_cell(config.get("name", "Metric"), cell_widget)
+                    self.cell_data_map[cell] = config
 
 

@@ -103,91 +103,92 @@ class MainController(QObject):
         self.import_files(sample_corpus=True)  # Call the import method with the sample_corpus flag
 
     def run_analysis(self):
+        """Run analysis on files from the active corpus."""
         try:
             logging.info("Starting analysis...")
-            logging.debug(f"Imported files at start of analysis: {self.imported_files}")
-
-            if not self.imported_files:
-                self.view.display_report("No files imported.")
+            
+            # Use active corpus files or fallback to all imported files
+            if hasattr(self, 'active_corpus') and self.active_corpus is not None:
+                files_to_analyze = self.active_corpus.get_files()
+                logging.info(f"Analyzing active corpus: {self.active_corpus.name}")
+            else:
+                files_to_analyze = list(self.imported_files)
+                logging.info("No active corpus, analyzing all imported files")
+            
+            if not files_to_analyze:
+                self.view.display_report("No files available for analysis.")
                 return
-
-            # Clear previous reports and word frequencies
+            
+            # Clear previous analysis data
             self.file_reports.clear()
             self.reports_list = []
             self.word_frequencies.clear()
             self.percentage_frequencies.clear()
             self.z_scores.clear()
-
             master_word_counts = Counter()
-
-            # Analyze each file and update master counts
-            for file in self.imported_files:
-                words, _ = read_and_preprocess_file(file)
-                word_counts = calculate_word_frequencies(words)
-
-                stats = get_text_statistics(word_counts)  # Already sorted in word_analyzer.py
-
-                # Log each file's word stats for debugging
-                logging.debug(f"Word Stats for {file}: {stats['word_stats']}")
-
-                # Store data for each file
-                self.file_reports[file] = {
-                    'data': stats,
-                    'title': f"Report for {os.path.basename(file)}"
+            
+            # Process each file
+            for file in files_to_analyze:
+                try:
+                    words, _ = read_and_preprocess_file(file)
+                    word_counts = calculate_word_frequencies(words)
+                    stats = get_text_statistics(word_counts)
+                    
+                    self.file_reports[file] = {
+                        'data': stats,
+                        'title': f"Report for {os.path.basename(file)}"
+                    }
+                    
+                    # Store frequency data
+                    self.word_frequencies[file] = [count for _, count, _, _, _ in stats['word_stats']]
+                    self.percentage_frequencies[file] = [perc for _, _, perc, _, _ in stats['word_stats']]
+                    self.z_scores[file] = [z for _, _, _, z, _ in stats['word_stats']]
+                    master_word_counts.update(word_counts)
+                    
+                    # Run assurance tests
+                    assurance_results, all_tests_passed = self.run_assurance_tests(stats)
+                    self.file_reports[file]['assurance'] = {
+                        'results': assurance_results,
+                        'all_passed': all_tests_passed
+                    }
+                    
+                    logging.debug(f"Processed file: {file}")
+                except Exception as e:
+                    logging.error(f"Error processing file {file}: {str(e)}")
+                    continue
+            
+            # Create master report
+            if master_word_counts:
+                master_stats = get_text_statistics(master_word_counts)
+                self.file_reports["Master Report"] = {
+                    'data': master_stats,
+                    'title': "Master Report"
                 }
-
-                # Update the frequency dictionaries (no need to sort here)
-                self.word_frequencies[file] = [count for _, count, _, _, _ in stats['word_stats']]
-                self.percentage_frequencies[file] = [perc for _, _, perc, _, _ in stats['word_stats']]
-                self.z_scores[file] = [z for _, _, _, z, _ in stats['word_stats']]
-
-                # Update the master word counter
-                master_word_counts.update(word_counts)
-
-                # Run assurance tests for this file
-                assurance_results, all_tests_passed = self.run_assurance_tests(stats)
-                self.file_reports[file]['assurance'] = {
+                
+                assurance_results, all_tests_passed = self.run_assurance_tests(master_stats)
+                self.file_reports["Master Report"]['assurance'] = {
                     'results': assurance_results,
                     'all_passed': all_tests_passed
                 }
-
-            # Generate the master report
-            master_stats = get_text_statistics(master_word_counts)  # Already sorted
-
-            self.file_reports["Master Report"] = {
-                'data': master_stats,
-                'title': "Master Report"
-            }
-
-            # Log the master word stats
-            logging.debug(f"Master Word Stats: {master_stats['word_stats']}")
-
-            # Run assurance tests on the master report
-            assurance_results, all_tests_passed = self.run_assurance_tests(master_stats)
-            self.file_reports["Master Report"]['assurance'] = {
-                'results': assurance_results,
-                'all_passed': all_tests_passed
-            }
-
-            # Prepare the order of reports for display
-            self.reports_list.append("Master Report")
-            self.reports_list.extend(self.imported_files)
-
-            # Display the master report initially
-            self.generate_report(master_stats, "Master Report")
-            self.current_report_index = 0
-
-            # Display the assurance results for the master report
-            self.view.display_assurance_results(
-                assurance_results,
-                all_tests_passed,
-                "Master Report"
-            )
-
+                
+                # Update reports list and display
+                self.reports_list = ["Master Report"] + files_to_analyze
+                self.current_report_index = 0
+                self.generate_report(master_stats, "Master Report")
+                self.view.display_assurance_results(assurance_results, all_tests_passed, "Master Report")
+                
+                # Update any open dashboard
+                if hasattr(self, 'dashboard_controller'):
+                    self.dashboard_controller.refresh_visualizations()
+                
+                logging.info("Analysis completed successfully")
+            else:
+                logging.warning("No data to analyze")
+                self.view.display_report("No data available for analysis")
+            
         except Exception as e:
-            logging.error(f"An error occurred during analysis: {str(e)}")
-            self.view.display_report(f"An error occurred: {str(e)}")
-
+            logging.error(f"Analysis failed: {str(e)}")
+            self.view.display_report(f"Analysis error: {str(e)}")
 
     def generate_report(self, stats, report_title):
         """Generates a report including title, total word count, and formatted table."""
@@ -198,7 +199,6 @@ class MainController(QObject):
 
         # Pass the formatted report details to the view
         self.view.display_report(word_stats, report_title, total_word_count)
-
 
     def next_report(self):
         try:
@@ -306,7 +306,6 @@ class MainController(QObject):
 
         return assurance_results, all_tests_passed
 
-
     def launch_dashboard(self):
         # Initialize the dashboard controller if it doesn't exist
         if not hasattr(self, 'dashboard_controller'):
@@ -367,6 +366,16 @@ class MainController(QObject):
         if corpus_name in self.corpora:
             del self.corpora[corpus_name]
             print(f"[DEBUG] Removed corpus: {corpus_name}")
+        else:
+            print(f"[DEBUG] Corpus {corpus_name} not found.")
+
+    def set_active_corpus(self, corpus_name):
+        """Set the active corpus and trigger analysis update."""
+        if corpus_name in self.corpora:
+            self.active_corpus = self.corpora[corpus_name]
+            print(f"[DEBUG] Active corpus set to: {corpus_name}")
+            # Re-run analysis with new active corpus
+            self.run_analysis()
         else:
             print(f"[DEBUG] Corpus {corpus_name} not found.")
 

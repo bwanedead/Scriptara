@@ -4,36 +4,76 @@ import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
                             QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton
                             )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
 from pyqtgraph import PlotWidget, BarGraphItem, mkPen
 import numpy as np
 
 
 class BaseMetricLayout:
-    def __init__(self, file_reports, report_key):
-        self.file_reports = file_reports
-        self.report_key = report_key
-
-    def generate_layout(self):
-        """Override this in subclasses to generate the specific layout."""
-        raise NotImplementedError
-
-    def add_buttons(self, layout):
-        """Override in subclasses to add any extra controls."""
-        pass
-
-
-class FrequencyDistributionLayout:
     def __init__(self, vis):
         self.vis = vis
+        self.layout_widget = None
 
     def generate_layout(self):
-        layout_widget = QWidget()
-        layout = QVBoxLayout(layout_widget)
+        """Generate the base layout with refresh functionality."""
+        self.layout_widget = QWidget()
+        layout = QVBoxLayout(self.layout_widget)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
+        # Header with title and refresh button
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        title_label = QLabel(self.get_title())
+        title_label.setStyleSheet("color: #fff; font-size: 14px; font-weight: bold;")
+        header_layout.addWidget(title_label)
+        
+        header_layout.addStretch()
+        
+        refresh_btn = QToolButton()
+        refresh_btn.setText("⟳")
+        refresh_btn.setToolTip("Refresh visualization")
+        refresh_btn.setStyleSheet("""
+            QToolButton {
+                color: #888888;
+                border: none;
+                font-size: 16px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+            }
+        """)
+        refresh_btn.clicked.connect(self.refresh_visualization)
+        header_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(header_layout)
+        
+        # Add content area
+        self.add_content(layout)
+        
+        return self.layout_widget
+
+    def get_title(self):
+        """Override in subclasses to provide specific titles."""
+        return "Metric Visualization"
+
+    def add_content(self, layout):
+        """Override in subclasses to add specific visualization content."""
+        pass
+
+    def refresh_visualization(self):
+        """Override in subclasses to handle refresh."""
+        pass
+
+
+class FrequencyDistributionLayout(BaseMetricLayout):
+    def get_title(self):
+        return "Frequency Distribution"
+
+    def add_content(self, layout):
         plot_wid = self.vis.widget()
         layout.addWidget(plot_wid)
 
@@ -62,8 +102,10 @@ class FrequencyDistributionLayout:
         controls_layout.addStretch()
         layout.addLayout(controls_layout)
 
-        return layout_widget
-
+    def refresh_visualization(self):
+        """Refresh the frequency distribution plot."""
+        if hasattr(self.vis, 'update_plot'):
+            self.vis.update_plot()
 
 
 class FrequencyReportsLayout(QWidget):
@@ -188,9 +230,6 @@ class FrequencyReportsLayout(QWidget):
         # Auto-stretch columns
         for c in range(5):
             self.table_widget.horizontalHeader().setSectionResizeMode(c, QHeaderView.Stretch)
-
-
-
 
     def show_previous_report(self):
         """Show the previous report."""
