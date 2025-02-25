@@ -76,12 +76,11 @@ class DashboardController:
         )
 
         if cell_widget:
-            # Connect refresh signal
-            if hasattr(cell_widget, 'refresh_requested'):
-                cell_widget.refresh_requested.connect(
-                    lambda: self.refresh_cell_data(cell_widget)
-                )
+            # Add the cell to the view
             cell = self.view.add_cell(metric_name, cell_widget)
+            # Connect the refresh signal from the cell to the new refresh_cell method
+            if hasattr(cell, 'refresh_requested'):
+                cell.refresh_requested.connect(lambda: self.refresh_cell(cell))
             self.cell_data_map[cell] = {
                 "category_key": category_key,
                 "sub_key": sub_key,
@@ -93,14 +92,21 @@ class DashboardController:
         else:
             print("[ERROR] Cell widget creation failed.")
 
-    def refresh_cell_data(self, cell_widget):
+    def refresh_cell(self, cell):
         """Refresh a cell's data from the current analysis."""
+        # Re-run analysis to update file_reports
         if self.main_controller:
-            # Re-run analysis to update file_reports
             self.main_controller.run_analysis()
-            # Update the cell's visualization with new data
-            if hasattr(cell_widget, 'update_data'):
-                cell_widget.update_data(self.main_controller.file_reports)
+            # Retrieve visualization instance stored in cell.stored_content
+            vis_instance = getattr(cell, 'stored_content', None)
+            if vis_instance is not None:
+                # Update the file_reports attribute
+                vis_instance.file_reports = self.main_controller.file_reports
+                # Redraw the plot using the visualization's update method
+                vis_instance.update_plot()
+                print(f"[DEBUG] Refreshed cell '{getattr(cell, 'title', 'unknown')}' with updated data.")
+            else:
+                print("[DEBUG] No visualization instance found in cell for refresh.")
 
     def remove_metric_cell(self, metric_name):
         """
@@ -119,7 +125,7 @@ class DashboardController:
         category_key = metadata["category_key"]
         sub_key = metadata["sub_key"]
         sub_sub_key = metadata["sub_sub_key"]
-        visualization_type = metadata["visualization_type"]
+        visualization_type = metadata.get("visualization_type")  # If available in metadata
         initial_mode = metadata["initial_mode"]
 
         # Debug
@@ -144,13 +150,15 @@ class DashboardController:
             new_cell.duplicate_requested.connect(lambda: self.duplicate_metric_cell(metric_name, new_cell))
             new_cell.move_up_requested.connect(lambda: self.move_metric_cell_up(new_cell))
             new_cell.move_down_requested.connect(lambda: self.move_metric_cell_down(new_cell))
+            # Connect the refresh signal to the new refresh_cell method
+            if hasattr(new_cell, 'refresh_requested'):
+                new_cell.refresh_requested.connect(lambda: self.refresh_cell(new_cell))
 
             # Store metadata for the new cell
             self.cell_data_map[new_cell] = metadata.copy()
             print(f"[DEBUG] Metric cell duplicated for {metric_name}.")
         else:
             print("[ERROR] Failed to duplicate metric cell.")
-
 
     def move_metric_cell_up(self, cell):
         """

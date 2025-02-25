@@ -18,6 +18,7 @@ class BaseVisualization:
 class FrequencyDistributionVisualization(BaseVisualization):
     def __init__(self, file_reports, initial_mode='nominal'):
         super().__init__(file_reports)
+        print("[DEBUG] Initializing FrequencyDistributionVisualization")
         self.current_mode = initial_mode
         self.x_log = False
         self.y_log = False
@@ -29,11 +30,14 @@ class FrequencyDistributionVisualization(BaseVisualization):
             'z_score': 3
         }
 
+        print("[DEBUG] Setting up plot widget")
         pg.setConfigOptions(antialias=True, useOpenGL=True)
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('k')
 
+        print("[DEBUG] Running initial plot update")
         self.update_plot()
+        print("[DEBUG] Initialization complete")
 
     def widget(self):
         return self.plot_widget
@@ -54,6 +58,7 @@ class FrequencyDistributionVisualization(BaseVisualization):
         self.update_plot()
 
     def get_values(self, mode):
+        print(f"[DEBUG] Getting values for mode: {mode}")
         col = self.mode_map.get(mode, 1)
         data_sets = {}
         for rep_key, rep_data in self.file_reports.items():
@@ -65,16 +70,19 @@ class FrequencyDistributionVisualization(BaseVisualization):
             ranks = range(1, len(stats) + 1)
             vals = [s[col] for s in stats]
             data_sets[rep_key] = (list(ranks), vals)
+            print(f"[DEBUG] Processed {rep_key}: {len(vals)} values")
         return data_sets
 
     def update_plot(self):
+        print("[DEBUG] Starting plot update")
         self.plot_widget.clear()
         data = self.get_values(self.current_mode)
 
         if not data:
-            print("DEBUG: No data available to plot.")
+            print("[DEBUG] No data available to plot")
             return
 
+        print(f"[DEBUG] Plotting {len(data)} datasets")
         colors = [
             (102, 153, 255), (102, 255, 178), (255, 204, 102),
             (255, 102, 178), (178, 102, 255), (102, 255, 255), (255, 178, 102)
@@ -84,6 +92,7 @@ class FrequencyDistributionVisualization(BaseVisualization):
             c = colors[i % len(colors)]
             pen = pg.mkPen(color=c, width=1.5)
             self.plot_widget.plot(ranks, vals, pen=pen, name=rep, clear=False)
+            print(f"[DEBUG] Plotted dataset {i+1}")
 
         self.plot_widget.getPlotItem().setLogMode(x=self.x_log, y=self.y_log)
         self.plot_widget.getPlotItem().enableAutoRange()
@@ -93,6 +102,7 @@ class FrequencyDistributionVisualization(BaseVisualization):
         self.plot_widget.update()
         self.plot_widget.repaint()
         QApplication.processEvents()
+        print("[DEBUG] Plot update complete")
 
 
 class FrequencyReportsAggregator:

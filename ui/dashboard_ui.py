@@ -871,6 +871,15 @@ class DashboardWindow(QMainWindow):
                 corpus = self.main_controller.corpora[corpus_name]
                 for file_path in selected_files:
                     corpus.remove_file(file_path)
+                
+                # Add this code to re-run analysis if modifying the active corpus
+                if hasattr(self.main_controller, 'active_corpus') and \
+                   self.main_controller.active_corpus and \
+                   self.main_controller.active_corpus.name == corpus_name:
+                    # Re-run analysis to update reports with the modified corpus
+                    print(f"[DEBUG] Running analysis after removing files from active corpus")
+                    self.main_controller.run_analysis()
+                
                 self.populate_corpora_tree()
                 dialog.close()
 

@@ -78,10 +78,12 @@ class MainController(QObject):
                 
                 # Wrap imported files into the default corpus
                 if "Default Corpus" not in self.corpora:
+                    # Create a new corpus with the files
                     default_corpus = Corpus(name="Default Corpus", file_paths=list(new_files))
                     self.corpora["Default Corpus"] = default_corpus
                     self.active_corpus = default_corpus
                 else:
+                    # Add files to existing corpus
                     default_corpus = self.corpora["Default Corpus"]
                     for file in new_files:
                         default_corpus.add_file(file)
@@ -107,19 +109,19 @@ class MainController(QObject):
         try:
             logging.info("Starting analysis...")
             
-            # Use active corpus files or fallback to all imported files
-            if hasattr(self, 'active_corpus') and self.active_corpus is not None:
+            # Use the active corpus's files if available; otherwise fallback.
+            if self.active_corpus is not None:
                 files_to_analyze = self.active_corpus.get_files()
-                logging.info(f"Analyzing active corpus: {self.active_corpus.name}")
+                logging.info(f"Active corpus: {self.active_corpus.name}")
             else:
                 files_to_analyze = list(self.imported_files)
-                logging.info("No active corpus, analyzing all imported files")
+                logging.info("No active corpus; using all imported files.")
             
             if not files_to_analyze:
                 self.view.display_report("No files available for analysis.")
                 return
             
-            # Clear previous analysis data
+            # Clear previous analysis data.
             self.file_reports.clear()
             self.reports_list = []
             self.word_frequencies.clear()
@@ -127,25 +129,24 @@ class MainController(QObject):
             self.z_scores.clear()
             master_word_counts = Counter()
             
-            # Process each file
+            # Process each file in the active corpus.
             for file in files_to_analyze:
                 try:
                     words, _ = read_and_preprocess_file(file)
                     word_counts = calculate_word_frequencies(words)
                     stats = get_text_statistics(word_counts)
+                    logging.debug(f"Word Stats for {file}: {stats['word_stats']}")
                     
                     self.file_reports[file] = {
                         'data': stats,
                         'title': f"Report for {os.path.basename(file)}"
                     }
-                    
-                    # Store frequency data
                     self.word_frequencies[file] = [count for _, count, _, _, _ in stats['word_stats']]
                     self.percentage_frequencies[file] = [perc for _, _, perc, _, _ in stats['word_stats']]
                     self.z_scores[file] = [z for _, _, _, z, _ in stats['word_stats']]
                     master_word_counts.update(word_counts)
                     
-                    # Run assurance tests
+                    # Run assurance tests for each file.
                     assurance_results, all_tests_passed = self.run_assurance_tests(stats)
                     self.file_reports[file]['assurance'] = {
                         'results': assurance_results,
@@ -157,21 +158,21 @@ class MainController(QObject):
                     logging.error(f"Error processing file {file}: {str(e)}")
                     continue
             
-            # Create master report
+            # Build the master report.
             if master_word_counts:
                 master_stats = get_text_statistics(master_word_counts)
                 self.file_reports["Master Report"] = {
                     'data': master_stats,
                     'title': "Master Report"
                 }
-                
+                logging.debug(f"Master Word Stats: {master_stats['word_stats']}")
                 assurance_results, all_tests_passed = self.run_assurance_tests(master_stats)
                 self.file_reports["Master Report"]['assurance'] = {
                     'results': assurance_results,
                     'all_passed': all_tests_passed
                 }
                 
-                # Update reports list and display
+                # Update the reports list.
                 self.reports_list = ["Master Report"] + files_to_analyze
                 self.current_report_index = 0
                 self.generate_report(master_stats, "Master Report")
@@ -354,10 +355,18 @@ class MainController(QObject):
                     corpus.add_file(file)
                 print(f"[DEBUG] Added files to corpus {corpus_name}: {files}")
                 
+                # Check if this is the active corpus
+                if self.active_corpus and self.active_corpus.name == corpus_name:
+                    # Re-run analysis to update reports with new files
+                    print(f"[DEBUG] Running analysis after adding files to active corpus")
+                    self.run_analysis()
+                
                 # If we have a dashboard open, refresh its tree
                 if hasattr(self, 'dashboard_controller') and \
                    hasattr(self.dashboard_controller.view, 'populate_corpora_tree'):
                     self.dashboard_controller.view.populate_corpora_tree()
+            else:
+                print(f"[DEBUG] Corpus {corpus_name} not found.")
         else:
             print(f"[DEBUG] Corpus {corpus_name} not found.")
 
