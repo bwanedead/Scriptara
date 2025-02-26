@@ -22,6 +22,12 @@ class MainController(QObject):
     def __init__(self, view):
         super().__init__()
         self.view = view
+        # Set the controller reference in the view
+        if hasattr(self.view, 'controller'):
+            print("[DEBUG] view.controller already exists, updating reference")
+        self.view.controller = self  # Set bidirectional reference
+        print("[DEBUG] Set view.controller reference in MainController.__init__")
+        
         self.imported_files = set()
         self.file_reports = {}
         self.connect_signals()
@@ -34,6 +40,7 @@ class MainController(QObject):
         # New multi-corpus structure
         self.corpora = {}
         self.active_corpus = None
+        self.selected_corpora = []  # Track corpora for multi-corpus metrics
 
     def connect_signals(self):
         self.view.import_files_signal.connect(self.import_files)
@@ -308,22 +315,49 @@ class MainController(QObject):
         return assurance_results, all_tests_passed
 
     def launch_dashboard(self):
+        """Initialize and show the dashboard."""
+        print("[DEBUG] launch_dashboard called in MainController")
+        
         # Initialize the dashboard controller if it doesn't exist
         if not hasattr(self, 'dashboard_controller'):
+            print("[DEBUG] Creating new DashboardController instance")
             self.dashboard_controller = DashboardController(self)
+        else:
+            print("[DEBUG] Using existing DashboardController instance")
 
         # Call show() on the dashboard_controller to create and display the dashboard
+        print("[DEBUG] Calling dashboard_controller.show()")
         self.dashboard_controller.show()
 
     def rename_default_corpus(self, new_name):
         """Rename the default corpus based on user input."""
+        print(f"[DEBUG] rename_default_corpus called with new_name={new_name}")
+        
         if "Default Corpus" in self.corpora:
+            print(f"[DEBUG] Found 'Default Corpus' in corpora, renaming to {new_name}")
             old_corpus = self.corpora.pop("Default Corpus")
             old_corpus.name = new_name
             self.corpora[new_name] = old_corpus
             self.active_corpus = old_corpus
+            
+            # Update the view to reflect the new name
+            if hasattr(self, 'view') and hasattr(self.view, 'update_corpus_display'):
+                print(f"[DEBUG] Calling view.update_corpus_display({new_name}) from rename_default_corpus")
+                self.view.update_corpus_display(new_name)
+            else:
+                print(f"[DEBUG] Cannot update view: view={hasattr(self, 'view')}, update_corpus_display={hasattr(self.view, 'update_corpus_display') if hasattr(self, 'view') else False}")
+            
+            # Update dashboard if it exists
+            if hasattr(self, 'dashboard_controller') and \
+               hasattr(self.dashboard_controller, 'view') and \
+               hasattr(self.dashboard_controller.view, 'populate_corpora_tree'):
+                print(f"[DEBUG] Updating dashboard corpora tree from rename_default_corpus")
+                self.dashboard_controller.view.populate_corpora_tree()
+            
+            print(f"[DEBUG] Default Corpus renamed to: {new_name}")
             logging.info(f"Default Corpus renamed to: {new_name}")
         else:
+            print(f"[DEBUG] No Default Corpus exists to rename. Available corpora: {list(self.corpora.keys())}")
             logging.warning("No Default Corpus exists to rename.")
 
     def add_corpus(self, corpus_name):
@@ -379,12 +413,88 @@ class MainController(QObject):
             print(f"[DEBUG] Corpus {corpus_name} not found.")
 
     def set_active_corpus(self, corpus_name):
-        """Set the active corpus and trigger analysis update."""
+        """Set a corpus as the active corpus for analysis."""
         if corpus_name in self.corpora:
             self.active_corpus = self.corpora[corpus_name]
             print(f"[DEBUG] Active corpus set to: {corpus_name}")
-            # Re-run analysis with new active corpus
-            self.run_analysis()
+            
+            # Update the main window to reflect the active corpus
+            if hasattr(self, 'view') and hasattr(self.view, 'update_corpus_display'):
+                self.view.update_corpus_display(corpus_name)
+            
+            # Update dashboard selection indicators if they exist
+            if hasattr(self, 'dashboard_controller') and \
+               hasattr(self.dashboard_controller, 'view') and \
+               hasattr(self.dashboard_controller.view, 'update_selection_indicators'):
+                print(f"[DEBUG] Updating dashboard selection indicators")
+                self.dashboard_controller.view.update_selection_indicators()
         else:
             print(f"[DEBUG] Corpus {corpus_name} not found.")
+
+    def rename_corpus(self, old_name, new_name):
+        """Rename a corpus in the controller."""
+        print(f"[DEBUG] rename_corpus called with old_name={old_name}, new_name={new_name}")
+        
+        if old_name in self.corpora:
+            # Get the corpus object
+            corpus = self.corpora[old_name]
+            
+            # Create a new entry with the new name
+            self.corpora[new_name] = corpus
+            
+            # Update the corpus's internal name
+            corpus.name = new_name
+            
+            # Remove the old entry
+            del self.corpora[old_name]
+            
+            # If this was the active corpus, update the active corpus reference
+            if self.active_corpus and self.active_corpus.name == old_name:
+                print(f"[DEBUG] Updating active_corpus reference from {old_name} to {new_name}")
+                self.active_corpus = self.corpora[new_name]
+                # Re-run analysis with renamed active corpus
+                self.run_analysis()
+                
+                # Update the main window to reflect the new name
+                if hasattr(self, 'view') and hasattr(self.view, 'update_corpus_display'):
+                    print(f"[DEBUG] Calling view.update_corpus_display({new_name})")
+                    self.view.update_corpus_display(new_name)
+                else:
+                    print(f"[DEBUG] Cannot update main window: view={hasattr(self, 'view')}, update_corpus_display={hasattr(self.view, 'update_corpus_display') if hasattr(self, 'view') else False}")
+            else:
+                print(f"[DEBUG] Not updating active_corpus reference: active_corpus={self.active_corpus is not None}, active_name={self.active_corpus.name if self.active_corpus else None}")
+            
+            print(f"[DEBUG] Renamed corpus: {old_name} → {new_name}")
+            
+            # Update dashboard if it exists
+            if hasattr(self, 'dashboard_controller') and \
+               hasattr(self.dashboard_controller, 'view') and \
+               hasattr(self.dashboard_controller.view, 'populate_corpora_tree'):
+                print(f"[DEBUG] Updating dashboard corpora tree")
+                self.dashboard_controller.view.populate_corpora_tree()
+            else:
+                print(f"[DEBUG] Cannot update dashboard: dashboard_controller={hasattr(self, 'dashboard_controller')}")
+        else:
+            print(f"[DEBUG] Corpus {old_name} not found in {list(self.corpora.keys())}")
+
+    def toggle_multi_corpus(self, corpus_name):
+        """Toggle a corpus in/out of multi-corpus selection list."""
+        print(f"[DEBUG] toggle_multi_corpus called with corpus_name={corpus_name}")
+        
+        if corpus_name in self.corpora:
+            if corpus_name in self.selected_corpora:
+                self.selected_corpora.remove(corpus_name)
+                print(f"[DEBUG] Removed {corpus_name} from multi-corpus selection")
+            else:
+                self.selected_corpora.append(corpus_name)
+                print(f"[DEBUG] Added {corpus_name} to multi-corpus selection")
+                
+            # Update dashboard if it exists
+            if hasattr(self, 'dashboard_controller') and \
+               hasattr(self.dashboard_controller, 'view') and \
+               hasattr(self.dashboard_controller.view, 'update_selection_indicators'):
+                print(f"[DEBUG] Updating dashboard selection indicators")
+                self.dashboard_controller.view.update_selection_indicators()
+        else:
+            print(f"[DEBUG] Cannot toggle multi-corpus selection - corpus {corpus_name} not found in {list(self.corpora.keys())}")
 

@@ -7,15 +7,21 @@ from model.corpora import Corpus  # Add this import
 
 class DashboardController:
     def __init__(self, main_controller=None):
+        print(f"[DEBUG] DashboardController.__init__ called with main_controller={main_controller is not None}")
         self.main_controller = main_controller
         self.view = None
         self.cell_data_map = {}
 
     def show(self):
+        print(f"[DEBUG] DashboardController.show() called, view exists: {self.view is not None}")
         if not self.view:
+            print(f"[DEBUG] Creating new DashboardWindow instance")
             self.view = DashboardWindow(controller=self)
             # Ensure the view has access to main_controller
             self.view.main_controller = self.main_controller
+            print(f"[DEBUG] Set view.main_controller reference: {self.view.main_controller is not None}")
+        else:
+            print(f"[DEBUG] Using existing DashboardWindow instance")
         self.view.show()
 
     def add_corpus(self, corpus_name):
@@ -28,11 +34,40 @@ class DashboardController:
             print("[ERROR] Cannot add corpus - main controller not available")
 
     def set_active_corpus(self, corpus_name):
-        """Delegate setting active corpus to main controller."""
+        """Set the active corpus and delegate to main controller."""
+        print(f"[DEBUG] Dashboard controller setting active corpus to: {corpus_name}")
         if self.main_controller and hasattr(self.main_controller, 'set_active_corpus'):
             self.main_controller.set_active_corpus(corpus_name)
+            print(f"[DEBUG] Called main_controller.set_active_corpus({corpus_name})")
+            # Update UI after change
+            if self.view:
+                self.view.update_selection_indicators()
+                print(f"[DEBUG] Called view.update_selection_indicators()")
         else:
-            print("[ERROR] Cannot set active corpus - main controller not available")
+            print(f"[ERROR] Cannot set active corpus - main_controller={self.main_controller is not None}, has_set_active_corpus={hasattr(self.main_controller, 'set_active_corpus') if self.main_controller else False}")
+
+    def toggle_multi_corpus(self, corpus_name):
+        """Toggle corpus for multi-corpus metrics."""
+        print(f"[DEBUG] DashboardController.toggle_multi_corpus called with corpus_name={corpus_name}")
+        if self.main_controller and hasattr(self.main_controller, 'toggle_multi_corpus'):
+            self.main_controller.toggle_multi_corpus(corpus_name)
+            # Update UI after change
+            if self.view:
+                self.view.update_selection_indicators()
+        else:
+            print(f"[DEBUG] Cannot toggle multi-corpus - main_controller={self.main_controller is not None}, has_toggle_multi_corpus={hasattr(self.main_controller, 'toggle_multi_corpus') if self.main_controller else False}")
+            
+    def get_active_corpus_name(self):
+        """Get the name of the active corpus."""
+        if self.main_controller and hasattr(self.main_controller, 'active_corpus') and self.main_controller.active_corpus:
+            return self.main_controller.active_corpus.name
+        return None
+    
+    def get_multi_corpora(self):
+        """Get list of corpora selected for multi-corpus metrics."""
+        if self.main_controller and hasattr(self.main_controller, 'selected_corpora'):
+            return self.main_controller.selected_corpora
+        return []
 
     def add_selected_metric(self, item=None, column=None):
         if not self.view:
@@ -210,5 +245,23 @@ class DashboardController:
                 if cell_widget:
                     cell = self.view.add_cell(config.get("name", "Metric"), cell_widget)
                     self.cell_data_map[cell] = config
+
+    def rename_corpus(self, old_name, new_name):
+        """Delegate corpus renaming to main controller."""
+        print(f"[DEBUG] DashboardController.rename_corpus called with old_name={old_name}, new_name={new_name}")
+        
+        if self.main_controller and hasattr(self.main_controller, 'rename_corpus'):
+            print(f"[DEBUG] Delegating rename_corpus to main_controller")
+            self.main_controller.rename_corpus(old_name, new_name)
+            
+            # Update UI after renaming
+            if self.view:
+                print(f"[DEBUG] Updating dashboard UI after rename")
+                self.view.populate_corpora_tree()
+                print(f"[DEBUG] Dashboard updated after renaming corpus")
+            else:
+                print(f"[DEBUG] Cannot update dashboard UI - view not available")
+        else:
+            print(f"[DEBUG] Cannot rename corpus - main_controller={self.main_controller is not None}, has_rename_corpus={hasattr(self.main_controller, 'rename_corpus') if self.main_controller else False}")
 
 

@@ -243,6 +243,12 @@ class DashboardWindow(QMainWindow):
         self.controller = controller
         self.setWindowTitle("Scriptara Dashboard")
 
+        # Add dictionaries for tracking UI components
+        self.status_dots = {}
+        self.single_buttons = {}
+        self.multi_buttons = {}
+        self.selected_corpora = set()  # Track multi-selected corpora
+
         self.create_menus()
 
         main_widget = QWidget()
@@ -269,6 +275,8 @@ class DashboardWindow(QMainWindow):
 
         # Header: fixed height with title, add button, and toggle button
         self.corpora_viewer_header = QWidget()
+        self.corpora_viewer_header.setCursor(Qt.PointingHandCursor)  # Change cursor to hand when hovering
+        self.corpora_viewer_header.mousePressEvent = self.on_header_click  # Make header clickable
         header_layout = QHBoxLayout(self.corpora_viewer_header)
         header_layout.setContentsMargins(10, 5, 10, 5)
         header_layout.setSpacing(5)
@@ -326,9 +334,46 @@ class DashboardWindow(QMainWindow):
         tree_layout.setContentsMargins(10, 0, 10, 0)
         tree_layout.setSpacing(0)
         
+        # Add info section to corpora panel
+        info_widget = QWidget()
+        info_layout = QHBoxLayout(info_widget)
+        info_layout.setContentsMargins(5, 5, 5, 5)
+        
+        corpora_label = QLabel("Corpora")
+        corpora_label.setStyleSheet("font-weight: bold; color: #ddd;")
+        info_layout.addWidget(corpora_label)
+        
+        info_layout.addStretch()
+        
+        info_button = QPushButton("?")
+        info_button.setFixedSize(16, 16)
+        info_button.setToolTip(
+            "Corpus Selection Guide:\n"
+            "• S button: Select as single active corpus\n"
+            "• M button: Include in multi-corpus metrics\n"
+            "• Cyan dot: Active for single-corpus metrics\n"
+            "• Purple dot: Included in multi-corpus metrics"
+        )
+        info_button.setStyleSheet("""
+            QPushButton {
+                background-color: #555;
+                color: #ddd;
+                border-radius: 8px;
+                padding: 0px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #777;
+            }
+        """)
+        info_layout.addWidget(info_button)
+        
+        tree_layout.addWidget(info_widget)  # Add at top of corpora section
+        
         self.corpora_tree = QTreeWidget()
         self.corpora_tree.setHeaderHidden(True)
         self.corpora_tree.setIndentation(15)
+        self.corpora_tree.setExpandsOnDoubleClick(False)  # Disable default double-click expansion
         self.corpora_tree.setStyleSheet("""
             QTreeWidget {
                 background-color: transparent;
@@ -343,6 +388,24 @@ class DashboardWindow(QMainWindow):
         """)
         tree_layout.addWidget(self.corpora_tree)
         
+        # Add "Add Corpus" button below the tree
+        self.add_corpus_button_bottom = QPushButton("Add Corpus")
+        self.add_corpus_button_bottom.setCursor(Qt.PointingHandCursor)
+        self.add_corpus_button_bottom.setStyleSheet("""
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #ddd;
+                border: 1px solid #444;
+                border-radius: 3px;
+                padding: 5px;
+                margin: 5px 0;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+            }
+        """)
+        tree_layout.addWidget(self.add_corpus_button_bottom)
+        
         # Initially collapsed
         self.corpora_tree_container.setVisible(False)
         corpora_viewer_main_layout.addWidget(self.corpora_tree_container)
@@ -351,7 +414,9 @@ class DashboardWindow(QMainWindow):
 
         # Connect signals
         self.add_corpus_button.clicked.connect(self.on_add_corpus)
+        self.add_corpus_button_bottom.clicked.connect(self.on_add_corpus)  # Connect to the same handler
         self.toggle_corpora_button.clicked.connect(self.toggle_corpora_viewer)
+        self.corpora_tree.clicked.connect(self.on_tree_clicked)  # Connect click handler for entire row
         self.corpora_tree.itemClicked.connect(self.on_corpus_item_clicked)
 
         # Add existing metrics panel section
@@ -410,6 +475,9 @@ class DashboardWindow(QMainWindow):
             self.main_controller = self.controller.main_controller
             self.populate_corpora_tree()  # Initial population
 
+        # Enable context menu on the corpora tree
+        self.corpora_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.corpora_tree.customContextMenuRequested.connect(self.show_corpus_context_menu)
 
     def resize_to_screen(self):
         screen_size = QGuiApplication.primaryScreen().availableGeometry()
@@ -659,47 +727,28 @@ class DashboardWindow(QMainWindow):
         """
         self.corpora_tree.clear()
         
+        # Clear tracking dictionaries
+        self.status_dots.clear()
+        self.single_buttons.clear()
+        self.multi_buttons.clear()
+        
         if hasattr(self, 'main_controller') and hasattr(self.main_controller, 'corpora'):
             corpora = self.main_controller.corpora
             total_count = len(corpora)
             self.corpora_title_label.setText(f"Corpora ({total_count})")
             
             for corpus_name, corpus in corpora.items():
-                # Create corpus header widget
-                header_widget = QWidget()
-                header_layout = QHBoxLayout(header_widget)
-                header_layout.setContentsMargins(5, 2, 5, 2)
-                
-                # Get file count
-                files = corpus.get_files() if hasattr(corpus, 'get_files') else []
-                file_count = len(files)
-                
-                # Corpus name and count
-                name_label = QLabel(f"{corpus_name} ({file_count})")
-                header_layout.addWidget(name_label)
-                header_layout.addStretch()
-                
-                # Management buttons
-                manage_btn = QToolButton()
-                manage_btn.setText("⚙")  # Gear icon
-                manage_btn.setToolTip("Manage Files")
-                manage_btn.clicked.connect(lambda _, c=corpus_name: self.manage_corpus_files(c))
-                
-                remove_btn = QToolButton()
-                remove_btn.setText("−")  # Minus sign
-                remove_btn.setToolTip("Remove Corpus")
-                remove_btn.clicked.connect(lambda _, c=corpus_name: self.remove_corpus(c))
-                
-                header_layout.addWidget(manage_btn)
-                header_layout.addWidget(remove_btn)
-                
                 # Create corpus item
                 corpus_item = QTreeWidgetItem()
                 corpus_item.setFlags(corpus_item.flags() | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 self.corpora_tree.addTopLevelItem(corpus_item)
+                
+                # Create and set the header widget
+                header_widget = self.create_corpus_header_widget(corpus_name, corpus)
                 self.corpora_tree.setItemWidget(corpus_item, 0, header_widget)
                 
                 # Add files as child items
+                files = corpus.get_files() if hasattr(corpus, 'get_files') else []
                 for file_path in files:
                     file_item = QTreeWidgetItem([os.path.basename(file_path)])
                     file_item.setToolTip(0, file_path)
@@ -712,7 +761,85 @@ class DashboardWindow(QMainWindow):
                 add_files_item.setData(0, Qt.UserRole, "add_files_action")
                 corpus_item.addChild(add_files_item)
                 
-                print(f"Added corpus to tree: {corpus_name} with {file_count} files")
+                print(f"Added corpus to tree: {corpus_name} with {len(files)} files")
+            
+            # Update selection indicators
+            self.update_selection_indicators()
+
+    def create_corpus_header_widget(self, corpus_name, corpus):
+        """Create a custom header widget for corpus items."""
+        # Create overall widget
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(2, 2, 2, 2)
+        header_layout.setSpacing(5)
+        
+        # Status indicator dots
+        self.status_dots[corpus_name] = QLabel()
+        self.status_dots[corpus_name].setFixedSize(8, 8)
+        self.status_dots[corpus_name].setStyleSheet("background-color: transparent; border-radius: 4px;")
+        header_layout.addWidget(self.status_dots[corpus_name])
+        
+        # Corpus name label
+        file_count = len(corpus.get_files()) if hasattr(corpus, 'get_files') else 0
+        name_label = QLabel(f"{corpus_name} ({file_count} files)")
+        header_layout.addWidget(name_label)
+        
+        header_layout.addStretch()
+        
+        # Single corpus button
+        single_btn = QPushButton("S")
+        single_btn.setFixedSize(22, 22)
+        single_btn.setToolTip("Select as active corpus for single-corpus metrics")
+        single_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #444;
+                color: #aaa;
+                border-radius: 3px;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background-color: #555;
+            }
+        """)
+        single_btn.clicked.connect(lambda: self.set_single_active_corpus(corpus_name))
+        header_layout.addWidget(single_btn)
+        self.single_buttons[corpus_name] = single_btn
+        
+        # Multi corpus button
+        multi_btn = QPushButton("M")
+        multi_btn.setFixedSize(22, 22) 
+        multi_btn.setToolTip("Toggle inclusion in multi-corpus metrics")
+        multi_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #444;
+                color: #aaa;
+                border-radius: 3px;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background-color: #555;
+            }
+        """)
+        multi_btn.clicked.connect(lambda: self.toggle_multi_corpus(corpus_name))
+        header_layout.addWidget(multi_btn)
+        self.multi_buttons[corpus_name] = multi_btn
+        
+        # Management button
+        manage_btn = QToolButton()
+        manage_btn.setText("⚙")  # Gear icon
+        manage_btn.setToolTip("Manage Files")
+        manage_btn.clicked.connect(lambda: self.manage_corpus_files(corpus_name))
+        header_layout.addWidget(manage_btn)
+        
+        # Remove button
+        remove_btn = QToolButton()
+        remove_btn.setText("−")  # Minus sign
+        remove_btn.setToolTip("Remove Corpus")
+        remove_btn.clicked.connect(lambda: self.remove_corpus(corpus_name))
+        header_layout.addWidget(remove_btn)
+        
+        return header_widget
 
     def manage_corpus_files(self, corpus_name):
         """Open file management dialog for a corpus."""
@@ -901,9 +1028,6 @@ class DashboardWindow(QMainWindow):
     def on_corpus_item_clicked(self, item, column):
         """Handle clicks on corpus items."""
         if not item.parent():  # Top-level item (corpus)
-            # Toggle expansion state
-            item.setExpanded(not item.isExpanded())
-            
             # Get corpus name from header widget
             header_widget = self.corpora_tree.itemWidget(item, 0)
             if header_widget:
@@ -915,10 +1039,24 @@ class DashboardWindow(QMainWindow):
                         print(f"Selected corpus: {corpus_name}")
         else:  # Child item
             if item.data(0, Qt.UserRole) == "add_files_action":
-                corpus_name = item.parent().text(0).split(" (")[0]
-                if hasattr(self.main_controller, 'add_files_to_corpus'):
-                    self.main_controller.add_files_to_corpus(corpus_name)
-                    self.populate_corpora_tree()
+                # Get parent item (the corpus)
+                parent_item = item.parent()
+                # Get corpus name from parent's header widget
+                header_widget = self.corpora_tree.itemWidget(parent_item, 0)
+                if header_widget:
+                    name_label = header_widget.findChild(QLabel)
+                    if name_label:
+                        corpus_name = name_label.text().split(" (")[0]
+                        if hasattr(self.main_controller, 'add_files_to_corpus'):
+                            print(f"[DEBUG] Adding files to corpus: {corpus_name}")
+                            self.main_controller.add_files_to_corpus(corpus_name)
+                            self.populate_corpora_tree()
+                        else:
+                            print("[ERROR] main_controller missing add_files_to_corpus method")
+                    else:
+                        print("[ERROR] Could not find name label in header widget")
+                else:
+                    print("[ERROR] Could not find header widget for parent item")
 
     def on_add_corpus(self):
         """Handle adding a new corpus."""
@@ -930,3 +1068,201 @@ class DashboardWindow(QMainWindow):
                 print(f"Added new corpus: {new_corpus_name}")
             else:
                 print("Error: No main_controller available")
+
+    def show_corpus_context_menu(self, position):
+        """Show custom context menu for corpus items."""
+        item = self.corpora_tree.itemAt(position)
+        if not item:
+            return
+        
+        # Only show context menu for top-level items (corpora)
+        if not item.parent():
+            # Get the corpus name from the header widget
+            header_widget = self.corpora_tree.itemWidget(item, 0)
+            if header_widget:
+                name_label = header_widget.findChild(QLabel)
+                if name_label:
+                    corpus_name = name_label.text().split(" (")[0]
+                    
+                    # Create context menu
+                    context_menu = QMenu(self)
+                    
+                    # Add rename action
+                    rename_action = context_menu.addAction("Rename Corpus")
+                    rename_action.triggered.connect(lambda: self.prompt_rename_corpus(corpus_name))
+                    
+                    # Show context menu at cursor position
+                    context_menu.exec_(self.corpora_tree.mapToGlobal(position))
+
+    def prompt_rename_corpus(self, corpus_name):
+        """Prompt user for a new corpus name and rename if provided"""
+        new_name, ok = QInputDialog.getText(
+            self, 
+            "Rename Corpus", 
+            f"Enter new name for '{corpus_name}':",
+            text=corpus_name
+        )
+        
+        if ok and new_name and new_name != corpus_name:
+            # Delegate to controller
+            if hasattr(self, 'controller') and hasattr(self.controller, 'rename_corpus'):
+                self.controller.rename_corpus(corpus_name, new_name)
+                print(f"[DEBUG] Requested rename corpus: {corpus_name} → {new_name}")
+
+    def set_single_active_corpus(self, corpus_name):
+        """Set a corpus as the single active corpus."""
+        if self.controller and hasattr(self.controller, 'set_active_corpus'):
+            # Get current active corpus
+            old_active = self.controller.get_active_corpus_name() if hasattr(self.controller, 'get_active_corpus_name') else None
+            
+            # Only update if actually changing the selection
+            if old_active != corpus_name:
+                print(f"[DEBUG] Changing active corpus from {old_active} to {corpus_name}")
+                self.controller.set_active_corpus(corpus_name)
+                
+                # Force UI update immediately
+                self.update_selection_indicators()
+            else:
+                print(f"[DEBUG] Corpus {corpus_name} is already active, no change needed")
+        else:
+            print(f"[DEBUG] Cannot set active corpus: controller={self.controller is not None}")
+
+    def toggle_multi_corpus(self, corpus_name):
+        """Toggle a corpus for inclusion in multi-corpus metrics."""
+        if self.controller and hasattr(self.controller, 'toggle_multi_corpus'):
+            self.controller.toggle_multi_corpus(corpus_name)
+            self.update_selection_indicators()
+            print(f"[DEBUG] Toggled multi-corpus selection: {corpus_name}")
+        else:
+            # If controller method doesn't exist, handle locally
+            if corpus_name in self.selected_corpora:
+                self.selected_corpora.remove(corpus_name)
+                print(f"[DEBUG] Removed {corpus_name} from multi-corpus selection (local)")
+            else:
+                self.selected_corpora.add(corpus_name)
+                print(f"[DEBUG] Added {corpus_name} to multi-corpus selection (local)")
+            self.update_selection_indicators()
+
+    def update_selection_indicators(self):
+        """Update visual indicators for corpus selection status."""
+        if not hasattr(self, 'status_dots') or not self.status_dots:
+            print("[DEBUG] No status dots to update")
+            return
+            
+        # Get selection states from controller
+        active_corpus = None
+        multi_corpora = []
+        
+        if self.controller:
+            if hasattr(self.controller, 'get_active_corpus_name'):
+                active_corpus = self.controller.get_active_corpus_name()
+                print(f"[DEBUG] Got active_corpus from controller: {active_corpus}")
+            elif hasattr(self.controller, 'main_controller') and self.controller.main_controller:
+                if hasattr(self.controller.main_controller, 'active_corpus') and self.controller.main_controller.active_corpus:
+                    active_corpus = self.controller.main_controller.active_corpus.name
+                    print(f"[DEBUG] Got active_corpus from main_controller: {active_corpus}")
+            
+            if hasattr(self.controller, 'get_multi_corpora'):
+                multi_corpora = self.controller.get_multi_corpora()
+                print(f"[DEBUG] Got multi_corpora from controller: {multi_corpora}")
+            elif hasattr(self.controller, 'main_controller') and self.controller.main_controller:
+                if hasattr(self.controller.main_controller, 'selected_corpora'):
+                    multi_corpora = self.controller.main_controller.selected_corpora
+                    print(f"[DEBUG] Got multi_corpora from main_controller: {multi_corpora}")
+            else:
+                # Use local tracking if controller doesn't have the method
+                multi_corpora = list(self.selected_corpora)
+                print(f"[DEBUG] Using local multi_corpora: {multi_corpora}")
+        
+        print(f"[DEBUG] Updating indicators: active_corpus={active_corpus}, multi_corpora={multi_corpora}")
+        
+        # Update all corpus indicators
+        for corpus_name, dot in self.status_dots.items():
+            is_single = corpus_name == active_corpus
+            is_multi = corpus_name in multi_corpora
+            
+            # Update status dot
+            if is_single and is_multi:
+                # Both single and multi - show split dot
+                dot.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 cyan, stop:1 purple); border-radius: 4px;")
+            elif is_single:
+                # Single only - cyan dot
+                dot.setStyleSheet("background-color: cyan; border-radius: 4px;")
+            elif is_multi:
+                # Multi only - purple dot
+                dot.setStyleSheet("background-color: purple; border-radius: 4px;")
+            else:
+                # Not selected - transparent dot
+                dot.setStyleSheet("background-color: transparent; border-radius: 4px;")
+            
+            # Update button styling
+            if corpus_name in self.single_buttons:
+                if is_single:
+                    self.single_buttons[corpus_name].setStyleSheet("""
+                        QPushButton {
+                            background-color: #0088aa;
+                            color: white;
+                            border-radius: 3px;
+                            padding: 2px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background-color: #00aacc;
+                        }
+                    """)
+                else:
+                    self.single_buttons[corpus_name].setStyleSheet("""
+                        QPushButton {
+                            background-color: #444;
+                            color: #aaa;
+                            border-radius: 3px;
+                            padding: 2px;
+                        }
+                        QPushButton:hover {
+                            background-color: #555;
+                        }
+                    """)
+            
+            if corpus_name in self.multi_buttons:
+                if is_multi:
+                    self.multi_buttons[corpus_name].setStyleSheet("""
+                        QPushButton {
+                            background-color: #8800aa;
+                            color: white;
+                            border-radius: 3px;
+                            padding: 2px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background-color: #aa00cc;
+                        }
+                    """)
+                else:
+                    self.multi_buttons[corpus_name].setStyleSheet("""
+                        QPushButton {
+                            background-color: #444;
+                            color: #aaa;
+                            border-radius: 3px;
+                            padding: 2px;
+                        }
+                        QPushButton:hover {
+                            background-color: #555;
+                        }
+                    """)
+        
+        print(f"[DEBUG] Updated selection indicators for {len(self.status_dots)} corpora")
+
+    def on_tree_clicked(self, index):
+        """Handle clicks anywhere on the tree items."""
+        item = self.corpora_tree.itemFromIndex(index)
+        if not item.parent():  # Top-level item (corpus)
+            # Toggle expansion state when clicking anywhere on the row
+            item.setExpanded(not item.isExpanded())
+            print(f"[DEBUG] Toggled expansion of corpus item via row click")
+
+    def on_header_click(self, event):
+        """Handle clicks on the corpora viewer header."""
+        # Only handle left clicks
+        if event.button() == Qt.LeftButton:
+            self.toggle_corpora_viewer()
+            print(f"[DEBUG] Toggled corpora viewer via header click")

@@ -331,8 +331,35 @@ class MainWindow(QMainWindow):
 
     def prompt_rename_corpus(self):
         """Prompts the user for a new corpus name and emits the rename signal."""
+        print("[DEBUG] prompt_rename_corpus called in MainWindow")
+        
         new_name, ok = QInputDialog.getText(self, "Rename Corpus", "Enter new corpus name:")
         if ok and new_name:
+            print(f"[DEBUG] User entered new corpus name: {new_name}")
+            print(f"[DEBUG] Emitting rename_corpus_signal with new_name={new_name}")
             self.rename_corpus_signal.emit(new_name)
+            
+            # This direct update might be redundant if the controller properly updates the view
+            print(f"[DEBUG] Directly updating corpus_label in MainWindow")
             self.corpus_label.setText("Current Corpus: " + new_name)
+        else:
+            print(f"[DEBUG] User cancelled corpus rename dialog or entered empty name")
+
+    def update_corpus_display(self, corpus_name=None):
+        """
+        Update the displayed corpus name in the main window.
+        Gets the name from the single source of truth if no name provided.
+        """
+        print(f"[DEBUG] update_corpus_display called with corpus_name={corpus_name}")
+        
+        if corpus_name:
+            print(f"[DEBUG] Setting corpus label to: {corpus_name}")
+            self.corpus_label.setText("Current Corpus: " + corpus_name)
+        elif hasattr(self, 'controller') and hasattr(self.controller, 'active_corpus') and self.controller.active_corpus:
+            active_name = self.controller.active_corpus.name
+            print(f"[DEBUG] Setting corpus label from controller.active_corpus: {active_name}")
+            self.corpus_label.setText("Current Corpus: " + active_name)
+        else:
+            print(f"[DEBUG] No corpus name provided and no active corpus found. controller={hasattr(self, 'controller')}")
+            self.corpus_label.setText("Current Corpus: None")
 
