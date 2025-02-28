@@ -65,14 +65,25 @@ class DashboardController:
             print("[ERROR] Visualization type is missing.")
             return
 
-        # Create the cell widget using all keys
-        file_reports = self.main_controller.file_reports
+        # Get active corpus ID for anchoring
+        corpus_id = None
+        if self.main_controller.active_corpus:
+            corpus_id = self.main_controller.active_corpus.name
+            print(f"[DEBUG] Using active corpus: {corpus_id}")
+            
+            # Ensure we have a report for this corpus
+            if not self.main_controller.report_manager.has_report_for_corpus(corpus_id):
+                print(f"[DEBUG] Generating report for corpus: {corpus_id}")
+                self.main_controller.generate_report_for_corpus(corpus_id)
+
+        # Create the cell widget with corpus ID
         cell_widget = create_cell(
-            file_reports, 
-            category_key, 
-            sub_key, 
-            sub_sub_key=sub_sub_key,
-            initial_mode=initial_mode
+            self.main_controller,  # Pass controller instead of file_reports
+            category_key,
+            sub_key,
+            sub_sub_key=sub_sub_key, 
+            initial_mode=initial_mode,
+            corpus_id=corpus_id     # Pass corpus identifier
         )
 
         if cell_widget:
@@ -81,32 +92,55 @@ class DashboardController:
             # Connect the refresh signal from the cell to the new refresh_cell method
             if hasattr(cell, 'refresh_requested'):
                 cell.refresh_requested.connect(lambda: self.refresh_cell(cell))
+            
+            # Store metadata including corpus_id
             self.cell_data_map[cell] = {
                 "category_key": category_key,
                 "sub_key": sub_key,
                 "sub_sub_key": sub_sub_key,
                 "name": metric_name,
-                "initial_mode": initial_mode
+                "initial_mode": initial_mode,
+                "corpus_id": corpus_id  # Store corpus ID in metadata
             }
-            print(f"[DEBUG] Metric cell added for {metric_name}.")
+            print(f"[DEBUG] Metric cell added for {metric_name} (corpus: {corpus_id}).")
         else:
             print("[ERROR] Cell widget creation failed.")
 
     def refresh_cell(self, cell):
-        """Refresh a cell's data from the current analysis."""
-        # Re-run analysis to update file_reports
-        if self.main_controller:
-            self.main_controller.run_analysis()
-            # Retrieve visualization instance stored in cell.stored_content
-            vis_instance = getattr(cell, 'stored_content', None)
-            if vis_instance is not None:
-                # Update the file_reports attribute
-                vis_instance.file_reports = self.main_controller.file_reports
-                # Redraw the plot using the visualization's update method
-                vis_instance.update_plot()
-                print(f"[DEBUG] Refreshed cell '{getattr(cell, 'title', 'unknown')}' with updated data.")
+        """Refresh a cell's data from its specific corpus."""
+        if cell in self.cell_data_map:
+            metadata = self.cell_data_map[cell]
+            corpus_id = metadata.get("corpus_id")
+            
+            if corpus_id and self.main_controller:
+                print(f"[DEBUG] Refreshing cell for corpus: {corpus_id}")
+                
+                # Generate fresh report for this specific corpus if needed
+                if not self.main_controller.report_manager.has_report_for_corpus(corpus_id):
+                    self.main_controller.generate_report_for_corpus(corpus_id)
+                
+                # Retrieve visualization instance stored in cell.stored_content
+                vis_instance = getattr(cell, 'stored_content', None)
+                if vis_instance is not None:
+                    # Update the visualization with fresh data
+                    if hasattr(vis_instance, 'update_data_source'):
+                        vis_instance.update_data_source()
+                    if hasattr(vis_instance, 'update_plot'):
+                        vis_instance.update_plot()
+                    print(f"[DEBUG] Refreshed cell '{getattr(cell, 'title', 'unknown')}' with updated data.")
+                else:
+                    print("[DEBUG] No visualization instance found in cell for refresh.")
             else:
-                print("[DEBUG] No visualization instance found in cell for refresh.")
+                # Fallback to old refresh method
+                if self.main_controller:
+                    self.main_controller.run_analysis()
+                    vis_instance = getattr(cell, 'stored_content', None)
+                    if vis_instance is not None:
+                        if hasattr(vis_instance, 'file_reports'):
+                            vis_instance.file_reports = self.main_controller.file_reports
+                        if hasattr(vis_instance, 'update_plot'):
+                            vis_instance.update_plot()
+                        print(f"[DEBUG] Refreshed cell using legacy method.")
 
     def remove_metric_cell(self, metric_name):
         """
@@ -200,12 +234,20 @@ class DashboardController:
             
             # Recreate cells with new data
             for config in cell_configs:
+                # Get corpus_id from the cell metadata
+                corpus_id = config.get("corpus_id")
+                
+                # If this cell has a corpus_id, ensure we have fresh data for it
+                if corpus_id and hasattr(self.main_controller, 'generate_report_for_corpus'):
+                    self.main_controller.generate_report_for_corpus(corpus_id)
+                
                 cell_widget = create_cell(
-                    self.main_controller.file_reports,
+                    self.main_controller,
                     config["category_key"],
                     config["sub_key"],
                     sub_sub_key=config.get("sub_sub_key"),
-                    initial_mode=config.get("initial_mode", "nominal")
+                    initial_mode=config.get("initial_mode", "nominal"),
+                    corpus_id=corpus_id  # Pass corpus_id when recreating the cell
                 )
                 if cell_widget:
                     cell = self.view.add_cell(config.get("name", "Metric"), cell_widget)

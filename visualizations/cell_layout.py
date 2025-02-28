@@ -109,11 +109,21 @@ class FrequencyDistributionLayout(BaseMetricLayout):
 
 
 class FrequencyReportsLayout(QWidget):
-    def __init__(self, file_reports, parent=None):
+    def __init__(self, controller, corpus_id=None, parent=None):
         super().__init__(parent)
 
         print("DEBUG: FrequencyReportsLayout __init__ called!")
-        self.file_reports = file_reports
+        self.controller = controller
+        self.corpus_id = corpus_id
+        
+        # Get the appropriate data source
+        if corpus_id and hasattr(controller, 'get_report_for_corpus'):
+            self.file_reports = controller.get_report_for_corpus(corpus_id)
+            print(f"DEBUG: Using data for corpus: {corpus_id}")
+        else:
+            self.file_reports = getattr(controller, 'file_reports', {})
+            print("DEBUG: Using current file_reports (no corpus_id)")
+            
         self.reports_list = []
         self._build_aggregated_list()
 
@@ -244,6 +254,22 @@ class FrequencyReportsLayout(QWidget):
         if self.reports_list:
             self.current_index = (self.current_index + 1) % len(self.reports_list)
             self.update_table()
+
+    def refresh(self):
+        """Refresh the data source and update the table."""
+        print(f"DEBUG: Refreshing FrequencyReportsLayout for corpus: {self.corpus_id}")
+        
+        # Update the data source
+        if self.corpus_id and hasattr(self.controller, 'get_report_for_corpus'):
+            self.file_reports = self.controller.get_report_for_corpus(self.corpus_id)
+        else:
+            self.file_reports = getattr(self.controller, 'file_reports', {})
+            
+        # Rebuild the reports list and update the table
+        self.reports_list = []
+        self._build_aggregated_list()
+        self.current_index = 0  # Reset to first report
+        self.update_table()
 
 
 class BOScoreBarLayout:

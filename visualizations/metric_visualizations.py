@@ -8,17 +8,44 @@ import numpy as np
 from analysis.advanced_analysis import compute_bo_scores
 
 class BaseVisualization:
-    def __init__(self, file_reports):
-        self.file_reports = file_reports
-
+    def __init__(self, controller=None, corpus_id=None, initial_mode=None):
+        self.controller = controller  # Reference to controller to access reports
+        self.corpus_id = corpus_id    # Which corpus this visualization belongs to 
+        self.initial_mode = initial_mode
+        self.file_reports = {}
+        
+        # Initialize with the appropriate data
+        self.update_data_source()
+        
+    def update_data_source(self):
+        """Update the data source based on corpus_id"""
+        if not self.controller:
+            return
+            
+        if self.corpus_id and hasattr(self.controller, 'get_report_for_corpus'):
+            # Get corpus-specific data
+            self.file_reports = self.controller.get_report_for_corpus(self.corpus_id)
+            print(f"[DEBUG] Using data for corpus: {self.corpus_id}")
+        else:
+            # Fallback to current file_reports
+            self.file_reports = getattr(self.controller, 'file_reports', {})
+            print("[DEBUG] Using current file_reports (no corpus_id)")
+    
+    def update_plot(self):
+        """Update the visualization with current data"""
+        # Update data source first
+        self.update_data_source()
+        # Implement in subclasses
+        
     def widget(self):
+        """Return the visualization widget"""
         raise NotImplementedError("Subclasses must implement widget() method.")
 
 
 class FrequencyDistributionVisualization(BaseVisualization):
-    def __init__(self, file_reports, initial_mode='nominal'):
-        super().__init__(file_reports)
-        print("[DEBUG] Initializing FrequencyDistributionVisualization")
+    def __init__(self, controller=None, initial_mode='nominal', corpus_id=None):
+        super().__init__(controller, corpus_id, initial_mode)
+        print(f"[DEBUG] Initializing FrequencyDistributionVisualization for corpus: {corpus_id}")
         self.current_mode = initial_mode
         self.x_log = False
         self.y_log = False
@@ -61,6 +88,8 @@ class FrequencyDistributionVisualization(BaseVisualization):
         print(f"[DEBUG] Getting values for mode: {mode}")
         col = self.mode_map.get(mode, 1)
         data_sets = {}
+        
+        # Use the corpus-specific data
         for rep_key, rep_data in self.file_reports.items():
             if rep_key == "Master Report":
                 continue
@@ -74,6 +103,9 @@ class FrequencyDistributionVisualization(BaseVisualization):
         return data_sets
 
     def update_plot(self):
+        # First update the data source
+        super().update_plot()
+        
         print("[DEBUG] Starting plot update")
         self.plot_widget.clear()
         data = self.get_values(self.current_mode)

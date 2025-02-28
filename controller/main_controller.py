@@ -16,6 +16,7 @@ from tests.assurance_tests import (
     independent_total_from_counts
 )
 from model.corpora import Corpus  # Add this import
+from model.corpus_report_manager import CorpusReportManager  # Add this import
 
 
 class MainController(QObject):
@@ -34,6 +35,8 @@ class MainController(QObject):
         # New multi-corpus structure
         self.corpora = {}
         self.active_corpus = None
+        # Add the report manager
+        self.report_manager = CorpusReportManager()
 
     def connect_signals(self):
         self.view.import_files_signal.connect(self.import_files)
@@ -112,14 +115,16 @@ class MainController(QObject):
             # Use the active corpus's files if available; otherwise fallback.
             if self.active_corpus is not None:
                 files_to_analyze = self.active_corpus.get_files()
-                logging.info(f"Active corpus: {self.active_corpus.name}")
+                corpus_name = self.active_corpus.name
+                logging.info(f"Active corpus: {corpus_name}")
             else:
                 files_to_analyze = list(self.imported_files)
+                corpus_name = "Default Corpus"
                 logging.info("No active corpus; using all imported files.")
             
             if not files_to_analyze:
                 self.view.display_report("No files available for analysis.")
-                return
+                return False
             
             # Clear previous analysis data.
             self.file_reports.clear()
@@ -177,19 +182,25 @@ class MainController(QObject):
                 self.current_report_index = 0
                 self.generate_report(master_stats, "Master Report")
                 self.view.display_assurance_results(assurance_results, all_tests_passed, "Master Report")
-                
-                # Update any open dashboard
-                if hasattr(self, 'dashboard_controller'):
-                    self.dashboard_controller.refresh_visualizations()
-                
-                logging.info("Analysis completed successfully")
             else:
                 logging.warning("No data to analyze")
                 self.view.display_report("No data available for analysis")
+                return False
+                
+            # Store the report in the report manager (moved outside the if block)
+            self.report_manager.update_report_for_corpus(corpus_name, self.file_reports)
+                
+            # Update any open dashboard
+            if hasattr(self, 'dashboard_controller'):
+                self.dashboard_controller.refresh_visualizations()
+            
+            logging.info("Analysis completed successfully")
+            return True
             
         except Exception as e:
             logging.error(f"Analysis failed: {str(e)}")
             self.view.display_report(f"Analysis error: {str(e)}")
+            return False
 
     def generate_report(self, stats, report_title):
         """Generates a report including title, total word count, and formatted table."""
@@ -374,6 +385,8 @@ class MainController(QObject):
         """Remove a corpus from the controller."""
         if corpus_name in self.corpora:
             del self.corpora[corpus_name]
+            # Also remove its report data
+            self.report_manager.remove_corpus_report(corpus_name)
             print(f"[DEBUG] Removed corpus: {corpus_name}")
         else:
             print(f"[DEBUG] Corpus {corpus_name} not found.")
@@ -387,4 +400,36 @@ class MainController(QObject):
             self.run_analysis()
         else:
             print(f"[DEBUG] Corpus {corpus_name} not found.")
+
+    def get_report_for_corpus(self, corpus_name):
+        """Get the analysis report for a specific corpus."""
+        return self.report_manager.get_report_for_corpus(corpus_name)
+    
+    def generate_report_for_corpus(self, corpus_name):
+        """
+        Run analysis for a specific corpus and store its report.
+        
+        This allows generating reports without changing the active corpus.
+        """
+        if corpus_name not in self.corpora:
+            logging.error(f"Cannot generate report: corpus '{corpus_name}' not found")
+            return False
+            
+        # Store the current active corpus
+        previous_active = self.active_corpus
+        
+        # Temporarily set the requested corpus as active
+        self.active_corpus = self.corpora[corpus_name]
+        
+        # Run the analysis
+        success = self.run_analysis()
+        
+        # Restore the original active corpus
+        self.active_corpus = previous_active
+        
+        # If we had an active corpus before, restore its report to file_reports
+        if previous_active:
+            self.file_reports = self.report_manager.get_report_for_corpus(previous_active.name)
+            
+        return success
 
