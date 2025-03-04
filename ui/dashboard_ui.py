@@ -318,6 +318,10 @@ class DashboardWindow(QMainWindow):
             QSizePolicy.Fixed
         )
         
+        # Make the entire header clickable to toggle
+        self.corpora_viewer_header.installEventFilter(self)
+        self.corpora_viewer_header.setCursor(Qt.PointingHandCursor)  # Visual feedback
+        
         corpora_viewer_main_layout.addWidget(self.corpora_viewer_header)
 
         # Expandable tree container
@@ -915,10 +919,21 @@ class DashboardWindow(QMainWindow):
                         print(f"Selected corpus: {corpus_name}")
         else:  # Child item
             if item.data(0, Qt.UserRole) == "add_files_action":
-                corpus_name = item.parent().text(0).split(" (")[0]
-                if hasattr(self.main_controller, 'add_files_to_corpus'):
-                    self.main_controller.add_files_to_corpus(corpus_name)
-                    self.populate_corpora_tree()
+                # Get the parent item (the corpus item)
+                parent_item = item.parent()
+                # Get the header widget from the parent
+                header_widget = self.corpora_tree.itemWidget(parent_item, 0)
+                if header_widget:
+                    # Find the name label within the header widget
+                    name_label = header_widget.findChild(QLabel)
+                    if name_label:
+                        # Extract corpus name from label text (remove the count in parentheses)
+                        corpus_name = name_label.text().split(" (")[0]
+                        print(f"Adding files to corpus: {corpus_name}")
+                        # Call the method to add files
+                        if hasattr(self.main_controller, 'add_files_to_corpus'):
+                            self.main_controller.add_files_to_corpus(corpus_name)
+                            self.populate_corpora_tree()
 
     def on_add_corpus(self):
         """Handle adding a new corpus."""
@@ -930,3 +945,28 @@ class DashboardWindow(QMainWindow):
                 print(f"Added new corpus: {new_corpus_name}")
             else:
                 print("Error: No main_controller available")
+
+    def eventFilter(self, obj, event):
+        """
+        Handle events for various widgets.
+        - For corpora_viewer_header: Handle mouse press to toggle expansion
+        - For notebook_container: Handle other events as needed
+        """
+        # Handle mouse press on corpora header to toggle expansion
+        if obj == self.corpora_viewer_header and event.type() == QEvent.MouseButtonPress:
+            if event.button() == Qt.LeftButton:
+                # Check if click is on the add_corpus_button or toggle_corpora_button
+                child_widget = obj.childAt(event.pos())
+                if child_widget not in [self.add_corpus_button, self.toggle_corpora_button]:
+                    self.toggle_corpora_viewer()
+                    return True  # Event handled
+
+        # Handle events for notebook container (existing functionality)
+        if obj == self.notebook_container:
+            # Handle existing notebook container event filtering
+            if event.type() == QEvent.Wheel:
+                # Allow the original scroll event processing for the notebook container
+                return False
+
+        # Pass other events to the base class
+        return super().eventFilter(obj, event)
