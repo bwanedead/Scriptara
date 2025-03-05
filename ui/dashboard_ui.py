@@ -662,6 +662,7 @@ class DashboardWindow(QMainWindow):
         Each corpus shows its file count and contained files when expanded.
         """
         self.corpora_tree.clear()
+        self.corpora_tree.blockSignals(True)  # Prevent signals during setup for better performance
         
         if hasattr(self, 'main_controller') and hasattr(self.main_controller, 'corpora'):
             corpora = self.main_controller.corpora
@@ -703,6 +704,12 @@ class DashboardWindow(QMainWindow):
                 self.corpora_tree.addTopLevelItem(corpus_item)
                 self.corpora_tree.setItemWidget(corpus_item, 0, header_widget)
                 
+                # Add "Add Files" item as the first child
+                add_files_item = QTreeWidgetItem(["+ Add Files"])
+                add_files_item.setForeground(0, QColor("#888888"))
+                add_files_item.setData(0, Qt.UserRole, "add_files_action")
+                corpus_item.addChild(add_files_item)
+                
                 # Add files as child items
                 for file_path in files:
                     file_item = QTreeWidgetItem([os.path.basename(file_path)])
@@ -710,13 +717,13 @@ class DashboardWindow(QMainWindow):
                     file_item.setForeground(0, QColor("#aaaaaa"))
                     corpus_item.addChild(file_item)
                 
-                # Add the "Add Files" button as a child item
-                add_files_item = QTreeWidgetItem(["+ Add Files"])
-                add_files_item.setForeground(0, QColor("#888888"))
-                add_files_item.setData(0, Qt.UserRole, "add_files_action")
-                corpus_item.addChild(add_files_item)
+                # Maintain expansion state when refreshing
+                if corpus_name in getattr(self, '_expanded_corpora', set()):
+                    corpus_item.setExpanded(True)
                 
                 print(f"Added corpus to tree: {corpus_name} with {file_count} files")
+        
+        self.corpora_tree.blockSignals(False)  # Re-enable signals after setup
 
     def manage_corpus_files(self, corpus_name):
         """Open file management dialog for a corpus."""
@@ -905,6 +912,9 @@ class DashboardWindow(QMainWindow):
     def on_corpus_item_clicked(self, item, column):
         """Handle clicks on corpus items."""
         if not item.parent():  # Top-level item (corpus)
+            # Freeze updates to reduce lag
+            self.corpora_tree.setUpdatesEnabled(False)
+            
             # Toggle expansion state
             item.setExpanded(not item.isExpanded())
             
@@ -914,9 +924,25 @@ class DashboardWindow(QMainWindow):
                 name_label = header_widget.findChild(QLabel)
                 if name_label:
                     corpus_name = name_label.text().split(" (")[0]
+                    
+                    # Update expansion tracking
+                    if not hasattr(self, '_expanded_corpora'):
+                        self._expanded_corpora = set()
+                        
+                    if item.isExpanded():
+                        self._expanded_corpora.add(corpus_name)
+                    else:
+                        if corpus_name in self._expanded_corpora:
+                            self._expanded_corpora.remove(corpus_name)
+                    
+                    # Set active corpus
                     if hasattr(self.main_controller, 'set_active_corpus'):
                         self.main_controller.set_active_corpus(corpus_name)
                         print(f"Selected corpus: {corpus_name}")
+            
+            # Re-enable updates
+            self.corpora_tree.setUpdatesEnabled(True)
+            
         else:  # Child item
             if item.data(0, Qt.UserRole) == "add_files_action":
                 # Get the parent item (the corpus item)
@@ -961,8 +987,8 @@ class DashboardWindow(QMainWindow):
                     self.toggle_corpora_viewer()
                     return True  # Event handled
 
-        # Handle events for notebook container (existing functionality)
-        if obj == self.notebook_container:
+        # Handle events for notebook container (if it exists)
+        if hasattr(self, 'notebook_container') and obj == self.notebook_container:
             # Handle existing notebook container event filtering
             if event.type() == QEvent.Wheel:
                 # Allow the original scroll event processing for the notebook container
@@ -970,3 +996,10 @@ class DashboardWindow(QMainWindow):
 
         # Pass other events to the base class
         return super().eventFilter(obj, event)
+
+    def add_files_to_corpus(self, corpus_name):
+        """Helper method that adds files to a corpus and refreshes the tree."""
+        if hasattr(self.main_controller, 'add_files_to_corpus'):
+            self.main_controller.add_files_to_corpus(corpus_name)
+            self.populate_corpora_tree()
+            print(f"Adding files to corpus: {corpus_name}")
