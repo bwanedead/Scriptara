@@ -906,24 +906,20 @@ class DashboardWindow(QMainWindow):
             
             # Re-enable updates
             self.corpora_tree.setUpdatesEnabled(True)
-            
-        else:  # Child item
+        else:  # Child item (file or action)
+            # Check if this is the "+ Add Files" action item
             if item.data(0, Qt.UserRole) == "add_files_action":
-                # Get the parent item (the corpus item)
+                # Get the parent corpus item
                 parent_item = item.parent()
-                # Get the header widget from the parent
                 header_widget = self.corpora_tree.itemWidget(parent_item, 0)
                 if header_widget:
-                    # Find the name label within the header widget
                     name_label = header_widget.findChild(QLabel)
                     if name_label:
-                        # Extract corpus name from label text (remove the count in parentheses)
                         corpus_name = name_label.text().split(" (")[0]
+                        # Call the add_files_to_corpus method
+                        self.add_files_to_corpus(corpus_name)
                         print(f"Adding files to corpus: {corpus_name}")
-                        # Call the method to add files
-                        if hasattr(self.main_controller, 'add_files_to_corpus'):
-                            self.main_controller.add_files_to_corpus(corpus_name)
-                            self.populate_corpora_tree()
+            # For regular file items, do nothing (or implement file-specific actions if needed)
 
     def on_add_corpus(self):
         """Handle adding a new corpus."""
@@ -1027,13 +1023,7 @@ class DashboardWindow(QMainWindow):
         header_layout.addWidget(name_label)
         header_layout.addStretch()
         
-        # Add buttons for corpus actions
-        add_files_btn = QToolButton()
-        add_files_btn.setText("+")
-        add_files_btn.setToolTip("Add files to corpus")
-        add_files_btn.setStyleSheet("QToolButton { border: none; color: #888888; padding: 2px; } QToolButton:hover { color: #ffffff; }")
-        add_files_btn.clicked.connect(lambda: self.add_files_to_corpus(corpus_name))
-        
+        # Add buttons for corpus actions (removed "+" button)
         manage_files_btn = QToolButton()
         manage_files_btn.setText("⚙")
         manage_files_btn.setToolTip("Manage corpus files")
@@ -1046,19 +1036,24 @@ class DashboardWindow(QMainWindow):
         remove_corpus_btn.setStyleSheet("QToolButton { border: none; color: #888888; padding: 2px; } QToolButton:hover { color: #ffffff; }")
         remove_corpus_btn.clicked.connect(lambda: self.remove_corpus(corpus_name))
         
-        header_layout.addWidget(add_files_btn)
         header_layout.addWidget(manage_files_btn)
         header_layout.addWidget(remove_corpus_btn)
         
         # Set the header widget for the corpus item
         self.corpora_tree.setItemWidget(corpus_item, 0, header_widget)
         
+        # Add "+ Add Files" as the first child item
+        add_files_item = QTreeWidgetItem(["+ Add Files"])
+        add_files_item.setForeground(0, QColor("#888888"))
+        add_files_item.setData(0, Qt.UserRole, "add_files_action")
+        corpus_item.addChild(add_files_item)
+        
         # Add file items as children of the corpus item
         for file_path in corpus.get_files():
             file_item = QTreeWidgetItem(corpus_item)
             file_item.setText(0, os.path.basename(file_path))
             file_item.setToolTip(0, file_path)
-            file_item.setIcon(0, QIcon())  # You can add a file icon here if you have one
+            file_item.setForeground(0, QColor("#aaaaaa"))
         
         # Add the corpus to the tree
         print(f"Added corpus to tree: {corpus_name} with {file_count} files")
