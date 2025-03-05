@@ -37,6 +37,16 @@ class MainController(QObject):
         self.active_corpus = None
         # Add the report manager
         self.report_manager = CorpusReportManager()
+        # Corpus state tracking
+        self.single_active_corpus = None   # Name of the single active corpus
+        self.multi_active_corpora = set()  # Set of multi-active corpus names
+        
+        # Set first corpus as active if any exist
+        if self.corpora:
+            first_corpus = next(iter(self.corpora))
+            self.single_active_corpus = first_corpus
+            self.active_corpus = self.corpora[first_corpus]
+            logging.info(f"Set initial single active corpus: {first_corpus}")
 
     def connect_signals(self):
         self.view.import_files_signal.connect(self.import_files)
@@ -84,13 +94,29 @@ class MainController(QObject):
                     # Create a new corpus with the files
                     default_corpus = Corpus(name="Default Corpus", file_paths=list(new_files))
                     self.corpora["Default Corpus"] = default_corpus
-                    self.active_corpus = default_corpus
+                    
+                    # Ensure this becomes the active corpus if none is set
+                    if self.single_active_corpus is None:
+                        self.single_active_corpus = "Default Corpus"
+                        self.active_corpus = default_corpus
+                        logging.info("Set Default Corpus as single active corpus")
                 else:
                     # Add files to existing corpus
                     default_corpus = self.corpora["Default Corpus"]
                     for file in new_files:
                         default_corpus.add_file(file)
+                        
+                    # Ensure Default Corpus is active if no corpus is active
+                    if self.single_active_corpus is None:
+                        self.single_active_corpus = "Default Corpus"
+                        self.active_corpus = default_corpus
+                        logging.info("Set Default Corpus as single active corpus")
+                        
                 logging.info(f"Imported files stored in Default Corpus: {default_corpus}")
+                
+                # Update any open dashboard UI
+                if hasattr(self, 'dashboard_controller') and self.dashboard_controller.view:
+                    self.dashboard_controller.view.update_corpus_indicators()
             else:
                 logging.debug("No files selected or sample corpus is empty.")
         
@@ -341,13 +367,27 @@ class MainController(QObject):
         """Add a new corpus to the controller."""
         if not hasattr(self, 'corpora'):
             self.corpora = {}
-        
+            
         if corpus_name not in self.corpora:
+            # Create a new corpus
             new_corpus = Corpus(name=corpus_name)
             self.corpora[corpus_name] = new_corpus
-            print(f"[DEBUG] Added new corpus: {corpus_name}")
+            
+            # Set as default single active corpus if none exists
+            if not hasattr(self, 'single_active_corpus') or self.single_active_corpus is None:
+                self.single_active_corpus = corpus_name
+                self.active_corpus = new_corpus  # For backward compatibility
+                logging.info(f"Set {corpus_name} as default single active corpus")
+                
+            # Update the UI
+            if hasattr(self, 'dashboard_controller') and self.dashboard_controller.view:
+                self.dashboard_controller.view.populate_corpora_tree()
+                self.dashboard_controller.view.update_corpus_indicators()  # Ensure UI reflects
+                
+            return new_corpus
         else:
-            print(f"[DEBUG] Corpus {corpus_name} already exists.")
+            logging.warning(f"Corpus {corpus_name} already exists.")
+            return self.corpora[corpus_name]
 
     def add_files_to_corpus(self, corpus_name):
         """Add files to a specific corpus."""
@@ -391,15 +431,60 @@ class MainController(QObject):
         else:
             print(f"[DEBUG] Corpus {corpus_name} not found.")
 
-    def set_active_corpus(self, corpus_name):
-        """Set the active corpus and trigger analysis update."""
-        if corpus_name in self.corpora:
-            self.active_corpus = self.corpora[corpus_name]
-            print(f"[DEBUG] Active corpus set to: {corpus_name}")
-            # Re-run analysis with new active corpus
-            self.run_analysis()
+    def set_active_corpus(self, corpus_name, mode="single"):
+        """
+        Set a corpus as active in single or multi mode.
+        
+        Args:
+            corpus_name (str): The name of the corpus to set as active
+            mode (str): 'single' or 'multi' indicating activation mode
+        """
+        if corpus_name not in self.corpora:
+            logging.warning(f"Corpus {corpus_name} not found.")
+            return
+        
+        if mode == "single":
+            # Only update if changing to a different corpus - no toggle off
+            if self.single_active_corpus != corpus_name:
+                # Deactivate previous single active corpus
+                if self.single_active_corpus:
+                    logging.info(f"Switching single active from {self.single_active_corpus} to {corpus_name}")
+                self.single_active_corpus = corpus_name
+                self.active_corpus = self.corpora[corpus_name]  # For backward compatibility
+                logging.info(f"Set {corpus_name} as single active corpus")
+                
+                # Use targeted update instead of full repopulation
+                if hasattr(self, 'dashboard_controller') and self.dashboard_controller.view:
+                    self.dashboard_controller.view.update_corpus_indicators()
+            else:
+                logging.info(f"Corpus {corpus_name} already single active, no change")
+        elif mode == "multi":
+            # Toggle multi-active state
+            self.toggle_multi_corpus(corpus_name)
         else:
-            print(f"[DEBUG] Corpus {corpus_name} not found.")
+            logging.error(f"Unknown corpus activation mode: {mode}")
+
+    def toggle_multi_corpus(self, corpus_name):
+        """
+        Toggle a corpus's multi-active state.
+        
+        Args:
+            corpus_name (str): The name of the corpus to toggle
+        """
+        if corpus_name not in self.corpora:
+            logging.warning(f"Corpus {corpus_name} not found.")
+            return
+            
+        if corpus_name in self.multi_active_corpora:
+            self.multi_active_corpora.remove(corpus_name)
+            logging.info(f"Removed {corpus_name} from multi-active corpora")
+        else:
+            self.multi_active_corpora.add(corpus_name)
+            logging.info(f"Added {corpus_name} to multi-active corpora: {self.multi_active_corpora}")
+        
+        # Use targeted update instead of full repopulation
+        if hasattr(self, 'dashboard_controller') and self.dashboard_controller.view:
+            self.dashboard_controller.view.update_corpus_indicators()
 
     def get_report_for_corpus(self, corpus_name):
         """Get the analysis report for a specific corpus."""

@@ -180,13 +180,29 @@ class BOScoreBarVisualization:
     so that the layout (BOScoreBarLayout) can retrieve them via get_data().
     """
 
-    def __init__(self, file_reports, initial_mode=None):
+    def __init__(self, controller=None, initial_mode=None, corpus_id=None):
         # Initialize with given parameters
-        self.file_reports = file_reports
+        self.controller = controller
+        self.corpus_id = corpus_id
         self.initial_mode = initial_mode  # Store initial_mode for potential future use
-
-        # Attempt to compute BO scores
+        self.bon1_data = []
+        self.bon2_data = []
+        
+        # Update data based on corpus_id
+        self.update_data()
+        
+    def update_data(self):
+        """Update data using the appropriate corpus report"""
         try:
+            # Get the appropriate file_reports based on corpus_id
+            if self.corpus_id and hasattr(self.controller, 'get_report_for_corpus'):
+                file_reports = self.controller.get_report_for_corpus(self.corpus_id)
+                print(f"[DEBUG] BOScoreBar using report for {self.corpus_id}")
+            else:
+                file_reports = getattr(self.controller, 'file_reports', {})
+                print("[DEBUG] BOScoreBar using file_reports (no corpus_id)")
+                
+            # Compute BO scores
             bon1_dict, bon2_dict = compute_bo_scores(file_reports)
             # Sort descending by score
             self.bon1_data = sorted(bon1_dict.items(), key=lambda x: x[1], reverse=True)
@@ -213,25 +229,40 @@ class BOScoreBarVisualization:
         return None
 
 
-    
-
-
 class BOScoreLineVisualization:
     """
     Computes BOn1/BOn2 exactly like the Bar counterpart,
     storing data for line plotting.
     """
-    def __init__(self, file_reports, initial_mode=None):
-        self.file_reports = file_reports
+    def __init__(self, controller=None, initial_mode=None, corpus_id=None):
+        self.controller = controller
+        self.corpus_id = corpus_id
         self.initial_mode = initial_mode
         self.bon1_data = []
         self.bon2_data = []
+        
+        # Update data based on corpus_id
+        self.update_data()
+        
+    def update_data(self):
+        """Update data using the appropriate corpus report"""
         try:
-            bon1_dict, bon2_dict = compute_bo_scores(self.file_reports)
+            # Get the appropriate file_reports based on corpus_id
+            if self.corpus_id and hasattr(self.controller, 'get_report_for_corpus'):
+                file_reports = self.controller.get_report_for_corpus(self.corpus_id)
+                print(f"[DEBUG] BOScoreLine using report for {self.corpus_id}")
+            else:
+                file_reports = getattr(self.controller, 'file_reports', {})
+                print("[DEBUG] BOScoreLine using file_reports (no corpus_id)")
+                
+            # Compute BO scores
+            bon1_dict, bon2_dict = compute_bo_scores(file_reports)
             self.bon1_data = sorted(bon1_dict.items(), key=lambda x: x[1], reverse=True)
             self.bon2_data = sorted(bon2_dict.items(), key=lambda x: x[1], reverse=True)
         except Exception as e:
             print("[ERROR BOScoreLineVisualization] compute_bo_scores failed:", e)
+            self.bon1_data = []
+            self.bon2_data = []
 
     def get_data(self):
         return (self.bon1_data, self.bon2_data)
@@ -251,17 +282,35 @@ class BOScoreTableVisualization:
     """
     Computes BOn1/BOn2 for table display.
     """
-    def __init__(self, file_reports, initial_mode=None):
-        self.file_reports = file_reports
+    def __init__(self, controller=None, initial_mode=None, corpus_id=None):
+        self.controller = controller
+        self.corpus_id = corpus_id
         self.initial_mode = initial_mode
         self.bon1_data = []
         self.bon2_data = []
+        
+        # Update data based on corpus_id
+        self.update_data()
+        
+    def update_data(self):
+        """Update data using the appropriate corpus report"""
         try:
-            bon1_dict, bon2_dict = compute_bo_scores(self.file_reports)
+            # Get the appropriate file_reports based on corpus_id
+            if self.corpus_id and hasattr(self.controller, 'get_report_for_corpus'):
+                file_reports = self.controller.get_report_for_corpus(self.corpus_id)
+                print(f"[DEBUG] BOScoreTable using report for {self.corpus_id}")
+            else:
+                file_reports = getattr(self.controller, 'file_reports', {})
+                print("[DEBUG] BOScoreTable using file_reports (no corpus_id)")
+                
+            # Compute BO scores
+            bon1_dict, bon2_dict = compute_bo_scores(file_reports)
             self.bon1_data = sorted(bon1_dict.items(), key=lambda x: x[1], reverse=True)
             self.bon2_data = sorted(bon2_dict.items(), key=lambda x: x[1], reverse=True)
         except Exception as e:
             print("[ERROR BOScoreTableVisualization] compute_bo_scores failed:", e)
+            self.bon1_data = []
+            self.bon2_data = []
 
     def get_data(self):
         return (self.bon1_data, self.bon2_data)

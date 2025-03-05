@@ -16,7 +16,21 @@ class DashboardController:
             self.view = DashboardWindow(controller=self)
             # Ensure the view has access to main_controller
             self.view.main_controller = self.main_controller
+        
+        # Make sure there's an active corpus if any exist
+        if self.main_controller and hasattr(self.main_controller, 'corpora') and self.main_controller.corpora:
+            if not self.main_controller.single_active_corpus:
+                # Set the first corpus as active
+                first_corpus = next(iter(self.main_controller.corpora))
+                print(f"[DEBUG] Setting first corpus as active: {first_corpus}")
+                self.main_controller.single_active_corpus = first_corpus
+                self.main_controller.active_corpus = self.main_controller.corpora[first_corpus]
+        
         self.view.show()
+        
+        # Sync UI with initial corpus state
+        if self.view and hasattr(self.view, 'update_corpus_indicators'):
+            self.view.update_corpus_indicators()
 
     def add_corpus(self, corpus_name):
         """Delegate corpus addition to main controller."""
@@ -65,16 +79,21 @@ class DashboardController:
             print("[ERROR] Visualization type is missing.")
             return
 
-        # Get active corpus ID for anchoring
+        # Get active corpus ID for anchoring - use the single active corpus
         corpus_id = None
-        if self.main_controller.active_corpus:
-            corpus_id = self.main_controller.active_corpus.name
-            print(f"[DEBUG] Using active corpus: {corpus_id}")
+        if hasattr(self.main_controller, 'single_active_corpus') and self.main_controller.single_active_corpus:
+            corpus_id = self.main_controller.single_active_corpus
+            print(f"[DEBUG] Adding metric for single active corpus: {corpus_id}")
+        else:
+            print("[ERROR] No single active corpus is set. Cannot create visualization.")
+            return
             
-            # Ensure we have a report for this corpus
-            if not self.main_controller.report_manager.has_report_for_corpus(corpus_id):
-                print(f"[DEBUG] Generating report for corpus: {corpus_id}")
-                self.main_controller.generate_report_for_corpus(corpus_id)
+        # Always generate a fresh report for this corpus
+        print(f"[DEBUG] Generating fresh report for {corpus_id}")
+        success = self.main_controller.generate_report_for_corpus(corpus_id)
+        if not success:
+            print(f"[ERROR] Failed to generate report for corpus: {corpus_id}")
+            return
 
         # Create the cell widget with corpus ID
         cell_widget = create_cell(
@@ -107,40 +126,40 @@ class DashboardController:
             print("[ERROR] Cell widget creation failed.")
 
     def refresh_cell(self, cell):
-        """Refresh a cell's data from its specific corpus."""
+        """Refresh a cell's data from its specific anchored corpus."""
         if cell in self.cell_data_map:
             metadata = self.cell_data_map[cell]
             corpus_id = metadata.get("corpus_id")
             
             if corpus_id and self.main_controller:
-                print(f"[DEBUG] Refreshing cell for corpus: {corpus_id}")
+                print(f"[DEBUG] Refreshing cell for anchored corpus: {corpus_id}")
                 
                 # Generate fresh report for this specific corpus if needed
                 if not self.main_controller.report_manager.has_report_for_corpus(corpus_id):
                     self.main_controller.generate_report_for_corpus(corpus_id)
                 
+                # Get the report for this corpus
+                report = self.main_controller.report_manager.get_report_for_corpus(corpus_id)
+                
                 # Retrieve visualization instance stored in cell.stored_content
                 vis_instance = getattr(cell, 'stored_content', None)
                 if vis_instance is not None:
                     # Update the visualization with fresh data
-                    if hasattr(vis_instance, 'update_data_source'):
+                    if hasattr(vis_instance, 'update_data'):
+                        vis_instance.update_data(report)
+                    elif hasattr(vis_instance, 'update_data_source'):
                         vis_instance.update_data_source()
-                    if hasattr(vis_instance, 'update_plot'):
-                        vis_instance.update_plot()
+                        if hasattr(vis_instance, 'update_plot'):
+                            vis_instance.update_plot()
+                    else:
+                        print("[WARNING] Visualization lacks update methods")
                     print(f"[DEBUG] Refreshed cell '{getattr(cell, 'title', 'unknown')}' with updated data.")
                 else:
                     print("[DEBUG] No visualization instance found in cell for refresh.")
             else:
-                # Fallback to old refresh method
-                if self.main_controller:
-                    self.main_controller.run_analysis()
-                    vis_instance = getattr(cell, 'stored_content', None)
-                    if vis_instance is not None:
-                        if hasattr(vis_instance, 'file_reports'):
-                            vis_instance.file_reports = self.main_controller.file_reports
-                        if hasattr(vis_instance, 'update_plot'):
-                            vis_instance.update_plot()
-                        print(f"[DEBUG] Refreshed cell using legacy method.")
+                print(f"[ERROR] No corpus_id for cell {metadata.get('name', 'unknown')}")
+        else:
+            print("[ERROR] Cell not found in data map")
 
     def remove_metric_cell(self, metric_name):
         """
@@ -217,7 +236,7 @@ class DashboardController:
             cell.deleteLater()  # Schedule for deletion
 
     def refresh_visualizations(self):
-        """Refresh all visualization cells with new data."""
+        """Refresh all visualization cells with their anchored corpus data."""
         if self.view:
             # Store current cell configurations
             cell_configs = []
@@ -232,7 +251,7 @@ class DashboardController:
                 if item.widget():
                     item.widget().deleteLater()
             
-            # Recreate cells with new data
+            # Recreate cells with new data, respecting their corpus anchors
             for config in cell_configs:
                 # Get corpus_id from the cell metadata
                 corpus_id = config.get("corpus_id")
@@ -252,5 +271,8 @@ class DashboardController:
                 if cell_widget:
                     cell = self.view.add_cell(config.get("name", "Metric"), cell_widget)
                     self.cell_data_map[cell] = config
+                    print(f"[DEBUG] Recreated cell for {config.get('name')} anchored to corpus: {corpus_id}")
+                else:
+                    print(f"[ERROR] Failed to recreate cell for {config.get('name')}")
 
 

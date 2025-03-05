@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
     QTreeWidget, QTreeWidgetItem, QPushButton, QLabel, QMenuBar, 
     QMenu, QAction, QFrame, QTableWidget, QTableWidgetItem, QSizePolicy, QToolButton, QSizeGrip, QHeaderView, 
-    QSplitter, QInputDialog, QDialog, QMessageBox
+    QSplitter, QInputDialog, QDialog, QMessageBox, QApplication
 )
 from PyQt5.QtGui import QGuiApplication, QFont, QPixmap, QPainter, QBrush, QPen, QIcon, QColor, QWheelEvent
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QEvent, QRect
@@ -332,17 +332,20 @@ class DashboardWindow(QMainWindow):
         
         self.corpora_tree = QTreeWidget()
         self.corpora_tree.setHeaderHidden(True)
-        self.corpora_tree.setIndentation(15)
+        self.corpora_tree.setIndentation(20)
         self.corpora_tree.setStyleSheet("""
             QTreeWidget {
-                background-color: transparent;
+                background-color: #2b2b2b;
                 border: none;
             }
             QTreeWidget::item {
-                padding: 4px;
+                padding: 5px;
+            }
+            QTreeWidget::item:selected {
+                background-color: #404040;
             }
             QTreeWidget::item:hover {
-                background-color: #3a3a3a;
+                background-color: #363636;
             }
         """)
         tree_layout.addWidget(self.corpora_tree)
@@ -657,73 +660,29 @@ class DashboardWindow(QMainWindow):
             self.toggle_corpora_button.setToolTip("Collapse Corpora Viewer")
 
     def populate_corpora_tree(self):
-        """
-        Populate the corpora tree with available corpora and their files.
-        Each corpus shows its file count and contained files when expanded.
-        """
-        self.corpora_tree.clear()
-        self.corpora_tree.blockSignals(True)  # Prevent signals during setup for better performance
-        
-        if hasattr(self, 'main_controller') and hasattr(self.main_controller, 'corpora'):
-            corpora = self.main_controller.corpora
-            total_count = len(corpora)
-            self.corpora_title_label.setText(f"Corpora ({total_count})")
+        """Populate the corpora tree with all available corpora."""
+        if not hasattr(self, 'main_controller') or not self.main_controller:
+            print("[WARNING] No main_controller available for populate_corpora_tree")
+            return
             
-            for corpus_name, corpus in corpora.items():
-                # Create corpus header widget
-                header_widget = QWidget()
-                header_layout = QHBoxLayout(header_widget)
-                header_layout.setContentsMargins(5, 2, 5, 2)
-                
-                # Get file count
-                files = corpus.get_files() if hasattr(corpus, 'get_files') else []
-                file_count = len(files)
-                
-                # Corpus name and count
-                name_label = QLabel(f"{corpus_name} ({file_count})")
-                header_layout.addWidget(name_label)
-                header_layout.addStretch()
-                
-                # Management buttons
-                manage_btn = QToolButton()
-                manage_btn.setText("⚙")  # Gear icon
-                manage_btn.setToolTip("Manage Files")
-                manage_btn.clicked.connect(lambda _, c=corpus_name: self.manage_corpus_files(c))
-                
-                remove_btn = QToolButton()
-                remove_btn.setText("−")  # Minus sign
-                remove_btn.setToolTip("Remove Corpus")
-                remove_btn.clicked.connect(lambda _, c=corpus_name: self.remove_corpus(c))
-                
-                header_layout.addWidget(manage_btn)
-                header_layout.addWidget(remove_btn)
-                
-                # Create corpus item
-                corpus_item = QTreeWidgetItem()
-                corpus_item.setFlags(corpus_item.flags() | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                self.corpora_tree.addTopLevelItem(corpus_item)
-                self.corpora_tree.setItemWidget(corpus_item, 0, header_widget)
-                
-                # Add "Add Files" item as the first child
-                add_files_item = QTreeWidgetItem(["+ Add Files"])
-                add_files_item.setForeground(0, QColor("#888888"))
-                add_files_item.setData(0, Qt.UserRole, "add_files_action")
-                corpus_item.addChild(add_files_item)
-                
-                # Add files as child items
-                for file_path in files:
-                    file_item = QTreeWidgetItem([os.path.basename(file_path)])
-                    file_item.setToolTip(0, file_path)
-                    file_item.setForeground(0, QColor("#aaaaaa"))
-                    corpus_item.addChild(file_item)
-                
-                # Maintain expansion state when refreshing
-                if corpus_name in getattr(self, '_expanded_corpora', set()):
-                    corpus_item.setExpanded(True)
-                
-                print(f"Added corpus to tree: {corpus_name} with {file_count} files")
+        # Clear existing items
+        self.corpora_tree.clear()
         
-        self.corpora_tree.blockSignals(False)  # Re-enable signals after setup
+        # Ensure there's an active corpus if any exist
+        if hasattr(self.main_controller, 'corpora') and self.main_controller.corpora:
+            if not self.main_controller.single_active_corpus:
+                # Set the first corpus as active
+                first_corpus = next(iter(self.main_controller.corpora))
+                print(f"[DEBUG] Setting first corpus as active during tree population: {first_corpus}")
+                self.main_controller.single_active_corpus = first_corpus
+                self.main_controller.active_corpus = self.main_controller.corpora[first_corpus]
+        
+        # Populate with corpora
+        for corpus_name, corpus in self.main_controller.corpora.items():
+            self.add_corpus_to_tree(corpus_name, corpus)
+            
+        # Update the indicators to show active state
+        self.update_corpus_indicators()
 
     def manage_corpus_files(self, corpus_name):
         """Open file management dialog for a corpus."""
@@ -895,19 +854,26 @@ class DashboardWindow(QMainWindow):
                 dialog.close()
 
     def remove_corpus(self, corpus_name):
-        """Remove entire corpus after confirmation."""
+        """Remove a corpus after confirmation."""
+        # Confirm deletion
         reply = QMessageBox.question(
             self,
             "Remove Corpus",
-            f"Remove entire corpus '{corpus_name}'?\nThis cannot be undone.",
+            f"Are you sure you want to remove '{corpus_name}'?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         
         if reply == QMessageBox.Yes:
+            # Remove the corpus through the main controller
             if hasattr(self.main_controller, 'remove_corpus'):
                 self.main_controller.remove_corpus(corpus_name)
+                
+                # Refresh the tree
                 self.populate_corpora_tree()
+                print(f"Removed corpus: {corpus_name}")
+            else:
+                print("[ERROR] Cannot remove corpus - main controller missing method")
 
     def on_corpus_item_clicked(self, item, column):
         """Handle clicks on corpus items."""
@@ -935,10 +901,8 @@ class DashboardWindow(QMainWindow):
                         if corpus_name in self._expanded_corpora:
                             self._expanded_corpora.remove(corpus_name)
                     
-                    # Set active corpus
-                    if hasattr(self.main_controller, 'set_active_corpus'):
-                        self.main_controller.set_active_corpus(corpus_name)
-                        print(f"Selected corpus: {corpus_name}")
+                    # No longer change active corpus on click - use the S/M buttons instead
+                    print(f"Toggled expansion for corpus: {corpus_name}")
             
             # Re-enable updates
             self.corpora_tree.setUpdatesEnabled(True)
@@ -1003,3 +967,99 @@ class DashboardWindow(QMainWindow):
             self.main_controller.add_files_to_corpus(corpus_name)
             self.populate_corpora_tree()
             print(f"Adding files to corpus: {corpus_name}")
+
+    def update_corpus_indicators(self):
+        """Update the single/multi active indicators for all corpora in the tree."""
+        for i in range(self.corpora_tree.topLevelItemCount()):
+            item = self.corpora_tree.topLevelItem(i)
+            header_widget = self.corpora_tree.itemWidget(item, 0)
+            if not header_widget:
+                continue
+            
+            single_btn = header_widget.findChildren(QToolButton)[0]
+            multi_btn = header_widget.findChildren(QToolButton)[1]
+            name_label = header_widget.findChild(QLabel)
+            corpus_name = name_label.text().split(" (")[0]
+            
+            # Set colors based on active state
+            single_color = "#00ffff" if self.main_controller.single_active_corpus == corpus_name else "#888888"
+            multi_color = "#ff00ff" if corpus_name in self.main_controller.multi_active_corpora else "#888888"
+            
+            single_btn.setStyleSheet(f"QToolButton {{ border: none; color: {single_color}; padding: 2px; font-size: 10px; }} QToolButton:hover {{ color: #ffffff; }}")
+            multi_btn.setStyleSheet(f"QToolButton {{ border: none; color: {multi_color}; padding: 2px; font-size: 10px; }} QToolButton:hover {{ color: #ffffff; }}")
+        
+        # Force immediate UI refresh
+        QApplication.processEvents()
+
+    def add_corpus_to_tree(self, corpus_name, corpus):
+        """Add a corpus to the corpora tree with its header widget."""
+        # Create top-level item for the corpus
+        corpus_item = QTreeWidgetItem(self.corpora_tree)
+        corpus_item.setData(0, Qt.UserRole, corpus_name)  # Store corpus name for reference
+        
+        # Create header widget with buttons
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(5, 2, 5, 2)
+        
+        # "S" button for single active corpus
+        single_btn = QToolButton()
+        single_btn.setText("S")
+        single_btn.setToolTip("Set as single active corpus")
+        single_btn.setStyleSheet("QToolButton { border: none; color: #888888; padding: 2px; font-size: 10px; } QToolButton:hover { color: #ffffff; }")
+        single_btn.clicked.connect(lambda: self.main_controller.set_active_corpus(corpus_name, "single"))
+        
+        # "M" button for multi active corpus
+        multi_btn = QToolButton()
+        multi_btn.setText("M")
+        multi_btn.setToolTip("Toggle multi-active state")
+        multi_btn.setStyleSheet("QToolButton { border: none; color: #888888; padding: 2px; font-size: 10px; } QToolButton:hover { color: #ffffff; }")
+        multi_btn.clicked.connect(lambda: self.main_controller.set_active_corpus(corpus_name, "multi"))
+        
+        # Corpus name with file count
+        file_count = len(corpus.get_files())
+        name_label = QLabel(f"{corpus_name} ({file_count} files)")
+        name_label.setStyleSheet("color: white;")
+        
+        # Add components to header layout
+        header_layout.addWidget(single_btn)
+        header_layout.addWidget(multi_btn)
+        header_layout.addWidget(name_label)
+        header_layout.addStretch()
+        
+        # Add buttons for corpus actions
+        add_files_btn = QToolButton()
+        add_files_btn.setText("+")
+        add_files_btn.setToolTip("Add files to corpus")
+        add_files_btn.setStyleSheet("QToolButton { border: none; color: #888888; padding: 2px; } QToolButton:hover { color: #ffffff; }")
+        add_files_btn.clicked.connect(lambda: self.add_files_to_corpus(corpus_name))
+        
+        manage_files_btn = QToolButton()
+        manage_files_btn.setText("⚙")
+        manage_files_btn.setToolTip("Manage corpus files")
+        manage_files_btn.setStyleSheet("QToolButton { border: none; color: #888888; padding: 2px; } QToolButton:hover { color: #ffffff; }")
+        manage_files_btn.clicked.connect(lambda: self.manage_corpus_files(corpus_name))
+        
+        remove_corpus_btn = QToolButton()
+        remove_corpus_btn.setText("✕")
+        remove_corpus_btn.setToolTip("Remove corpus")
+        remove_corpus_btn.setStyleSheet("QToolButton { border: none; color: #888888; padding: 2px; } QToolButton:hover { color: #ffffff; }")
+        remove_corpus_btn.clicked.connect(lambda: self.remove_corpus(corpus_name))
+        
+        header_layout.addWidget(add_files_btn)
+        header_layout.addWidget(manage_files_btn)
+        header_layout.addWidget(remove_corpus_btn)
+        
+        # Set the header widget for the corpus item
+        self.corpora_tree.setItemWidget(corpus_item, 0, header_widget)
+        
+        # Add file items as children of the corpus item
+        for file_path in corpus.get_files():
+            file_item = QTreeWidgetItem(corpus_item)
+            file_item.setText(0, os.path.basename(file_path))
+            file_item.setToolTip(0, file_path)
+            file_item.setIcon(0, QIcon())  # You can add a file icon here if you have one
+        
+        # Add the corpus to the tree
+        print(f"Added corpus to tree: {corpus_name} with {file_count} files")
+        return corpus_item
