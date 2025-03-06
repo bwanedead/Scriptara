@@ -376,6 +376,64 @@ class MainController(QObject):
         else:
             logging.warning("No Default Corpus exists to rename.")
 
+    def rename_corpus(self, old_name, new_name):
+        """
+        Rename any corpus in the system and update all references.
+        
+        Args:
+            old_name (str): The current name of the corpus
+            new_name (str): The new name to assign to the corpus
+            
+        Returns:
+            bool: Success or failure of the rename operation
+        """
+        # Check if source corpus exists
+        if old_name not in self.corpora:
+            logging.error(f"Cannot rename corpus: '{old_name}' not found")
+            return False
+            
+        # Check if target name already exists
+        if new_name in self.corpora:
+            logging.error(f"Cannot rename corpus: '{new_name}' already exists")
+            return False
+        
+        # Get the corpus object
+        corpus = self.corpora[old_name]
+        
+        # Update the corpus name using its rename method
+        corpus.rename(new_name)
+        
+        # Update corpora dictionary
+        self.corpora[new_name] = corpus
+        del self.corpora[old_name]
+        
+        # Update active corpus references if needed
+        if hasattr(self, 'single_active_corpus') and self.single_active_corpus == old_name:
+            self.single_active_corpus = new_name
+            logging.info(f"Updated single active corpus reference to {new_name}")
+        
+        if hasattr(self, 'multi_active_corpora') and old_name in self.multi_active_corpora:
+            self.multi_active_corpora.remove(old_name)
+            self.multi_active_corpora.add(new_name)
+            logging.info(f"Updated multi active corpus reference to {new_name}")
+            
+        if hasattr(self, 'active_corpus') and self.active_corpus == corpus:
+            self.active_corpus = corpus
+            logging.info(f"Updated active corpus object reference")
+        
+        # Update the report in the report manager if it exists
+        if hasattr(self, 'report_manager'):
+            report = self.report_manager.get_report_for_corpus(old_name)
+            if report:
+                # Store the report under the new name
+                self.report_manager.update_report_for_corpus(new_name, report)
+                # Remove the old report
+                self.report_manager.remove_corpus_report(old_name)
+                logging.info(f"Updated report reference from '{old_name}' to '{new_name}'")
+        
+        logging.info(f"Successfully renamed corpus from '{old_name}' to '{new_name}'")
+        return True
+
     def add_corpus(self, corpus_name):
         """Add a new corpus to the controller."""
         if not hasattr(self, 'corpora'):

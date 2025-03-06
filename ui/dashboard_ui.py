@@ -417,6 +417,9 @@ class DashboardWindow(QMainWindow):
             self.main_controller = self.controller.main_controller
             self.populate_corpora_tree()  # Initial population
 
+        # Add context menu to corpora tree
+        self.corpora_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.corpora_tree.customContextMenuRequested.connect(self.show_corpus_context_menu)
 
     def resize_to_screen(self):
         screen_size = QGuiApplication.primaryScreen().availableGeometry()
@@ -678,11 +681,18 @@ class DashboardWindow(QMainWindow):
                 self.main_controller.active_corpus = self.main_controller.corpora[first_corpus]
         
         # Populate with corpora
+        corpora_count = 0
         for corpus_name, corpus in self.main_controller.corpora.items():
             self.add_corpus_to_tree(corpus_name, corpus)
+            corpora_count += 1
             
         # Update the indicators to show active state
         self.update_corpus_indicators()
+        
+        # Update the corpora count in the title label
+        if hasattr(self, 'corpora_title_label'):
+            self.corpora_title_label.setText(f"Corpora ({corpora_count})")
+            print(f"[DEBUG] Updated corpora count to {corpora_count}")
 
     def manage_corpus_files(self, corpus_name):
         """Open file management dialog for a corpus."""
@@ -869,7 +879,7 @@ class DashboardWindow(QMainWindow):
             if hasattr(self.main_controller, 'remove_corpus'):
                 self.main_controller.remove_corpus(corpus_name)
                 
-                # Refresh the tree
+                # Refresh the tree (which will update the count)
                 self.populate_corpora_tree()
                 print(f"Removed corpus: {corpus_name}")
             else:
@@ -927,7 +937,7 @@ class DashboardWindow(QMainWindow):
         if ok and new_corpus_name:
             if hasattr(self, 'main_controller'):
                 self.main_controller.add_corpus(new_corpus_name)
-                self.populate_corpora_tree()  # Refresh the tree
+                self.populate_corpora_tree()  # This will now update the count
                 print(f"Added new corpus: {new_corpus_name}")
             else:
                 print("Error: No main_controller available")
@@ -1058,3 +1068,99 @@ class DashboardWindow(QMainWindow):
         # Add the corpus to the tree
         print(f"Added corpus to tree: {corpus_name} with {file_count} files")
         return corpus_item
+
+    def show_corpus_context_menu(self, position):
+        """Show context menu for corpus items."""
+        # Get the item at the clicked position
+        item = self.corpora_tree.itemAt(position)
+        if not item or item.parent():  # Only show for top-level items (corpora)
+            return
+            
+        # Get the corpus name from the header widget
+        header_widget = self.corpora_tree.itemWidget(item, 0)
+        if not header_widget:
+            return
+            
+        name_label = header_widget.findChild(QLabel)
+        if not name_label:
+            return
+            
+        corpus_name = name_label.text().split(" (")[0]
+        
+        # Create context menu
+        context_menu = QMenu(self)
+        
+        # Add menu actions
+        rename_action = context_menu.addAction("Rename Corpus")
+        context_menu.addSeparator()
+        remove_action = context_menu.addAction("Remove Corpus")
+        
+        # Show menu at cursor position
+        action = context_menu.exec_(self.corpora_tree.mapToGlobal(position))
+        
+        # Handle menu actions
+        if action == rename_action:
+            self.rename_corpus(corpus_name)
+        elif action == remove_action:
+            self.remove_corpus(corpus_name)
+
+    def rename_corpus(self, old_name):
+        """Rename a corpus."""
+        # Ask for new name
+        new_name, ok = QInputDialog.getText(
+            self, 
+            "Rename Corpus", 
+            f"Enter new name for '{old_name}':",
+            text=old_name
+        )
+        
+        if ok and new_name and new_name != old_name:
+            # Check if the new name already exists
+            if hasattr(self.main_controller, 'corpora') and new_name in self.main_controller.corpora:
+                QMessageBox.warning(
+                    self,
+                    "Name Already Exists",
+                    f"A corpus with the name '{new_name}' already exists. Please choose a different name."
+                )
+                return
+                
+            # Perform the rename directly through the main controller
+            if hasattr(self.main_controller, 'rename_corpus'):
+                success = self.main_controller.rename_corpus(old_name, new_name)
+                if success:
+                    # Update UI
+                    self.populate_corpora_tree()
+                    
+                    # Update cells that reference this corpus through the controller
+                    if hasattr(self.controller, 'update_cell_corpus_references'):
+                        self.controller.update_cell_corpus_references(old_name, new_name)
+                    
+                    print(f"Renamed corpus from '{old_name}' to '{new_name}'")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Rename Failed",
+                        f"Failed to rename corpus '{old_name}'."
+                    )
+            else:
+                print("[ERROR] Cannot rename corpus - main controller missing rename_corpus method")
+                QMessageBox.warning(
+                    self,
+                    "Rename Not Supported",
+                    "Corpus renaming is not supported in this version."
+                )
+
+    def update_cell_corpus_references(self, old_name, new_name):
+        """Update all cells that reference the renamed corpus."""
+        if not hasattr(self.controller, 'cell_data_map'):
+            return
+            
+        for cell, metadata in self.controller.cell_data_map.items():
+            if metadata.get("corpus_id") == old_name:
+                # Update the metadata
+                metadata["corpus_id"] = new_name
+                print(f"[DEBUG] Updated cell reference from corpus '{old_name}' to '{new_name}'")
+                
+                # Refresh the cell to reflect the new corpus name if needed
+                if hasattr(self.controller, 'refresh_cell'):
+                    self.controller.refresh_cell(cell)

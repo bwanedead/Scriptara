@@ -41,6 +41,95 @@ class DashboardController:
         else:
             print("[ERROR] Cannot add corpus - main controller not available")
 
+    def rename_corpus(self, old_name, new_name):
+        """
+        Handle corpus renaming through the main controller.
+        Updates all cell references to the renamed corpus.
+        
+        Args:
+            old_name: The current name of the corpus
+            new_name: The new name to assign to the corpus
+            
+        Returns:
+            bool: Success or failure of the rename operation
+        """
+        if not self.main_controller:
+            print("[ERROR] Cannot rename corpus - main controller not available")
+            return False
+            
+        # Check if main controller has the rename_corpus method
+        if not hasattr(self.main_controller, 'rename_corpus'):
+            # If not available, we'll implement the rename logic here
+            print("[INFO] Implementing corpus rename in dashboard controller")
+            
+            # Check if corpus exists
+            if old_name not in self.main_controller.corpora:
+                print(f"[ERROR] Cannot rename corpus - '{old_name}' not found")
+                return False
+                
+            # Check if target name already exists
+            if new_name in self.main_controller.corpora:
+                print(f"[ERROR] Cannot rename corpus - '{new_name}' already exists")
+                return False
+                
+            # Get the corpus object
+            corpus = self.main_controller.corpora[old_name]
+            
+            # Update the corpus name
+            corpus.name = new_name
+            
+            # Update corpora dictionary
+            self.main_controller.corpora[new_name] = corpus
+            del self.main_controller.corpora[old_name]
+            
+            # Update active corpus references if needed
+            if hasattr(self.main_controller, 'single_active_corpus') and self.main_controller.single_active_corpus == old_name:
+                self.main_controller.single_active_corpus = new_name
+                print(f"[DEBUG] Updated single active corpus reference to {new_name}")
+            
+            if hasattr(self.main_controller, 'multi_active_corpora') and old_name in self.main_controller.multi_active_corpora:
+                self.main_controller.multi_active_corpora.remove(old_name)
+                self.main_controller.multi_active_corpora.add(new_name)
+                print(f"[DEBUG] Updated multi active corpus reference to {new_name}")
+                
+            if hasattr(self.main_controller, 'active_corpus') and self.main_controller.active_corpus == corpus:
+                self.main_controller.active_corpus = corpus
+                print(f"[DEBUG] Updated active corpus object reference")
+            
+            # Update any cell references to this corpus
+            self.update_cell_corpus_references(old_name, new_name)
+            
+            print(f"[INFO] Successfully renamed corpus from '{old_name}' to '{new_name}'")
+            return True
+        else:
+            # If main controller has rename_corpus method, use it
+            success = self.main_controller.rename_corpus(old_name, new_name)
+            if success:
+                # Update references in dashboard controller cells
+                self.update_cell_corpus_references(old_name, new_name)
+            return success
+    
+    def update_cell_corpus_references(self, old_name, new_name):
+        """
+        Update all cell references from the old corpus name to the new one.
+        
+        Args:
+            old_name: Previous corpus name
+            new_name: New corpus name
+        """
+        cells_updated = 0
+        for cell, metadata in self.cell_data_map.items():
+            if metadata.get("corpus_id") == old_name:
+                # Update the metadata
+                metadata["corpus_id"] = new_name
+                cells_updated += 1
+                
+                # If refresh_cell is available, refresh the cell
+                if hasattr(self, 'refresh_cell'):
+                    self.refresh_cell(cell)
+                    
+        print(f"[DEBUG] Updated {cells_updated} cell references from '{old_name}' to '{new_name}'")
+
     def set_active_corpus(self, corpus_name):
         """Delegate setting active corpus to main controller."""
         if self.main_controller and hasattr(self.main_controller, 'set_active_corpus'):
@@ -122,10 +211,16 @@ class DashboardController:
                 "corpus_id": corpus_id  # Store corpus ID in metadata
             }
             
-            # Connect cell's refresh button to our refresh_cell method
+            # Connect all the cell signals to their respective handlers
             if hasattr(cell, 'refresh_requested'):
                 cell.refresh_requested.connect(lambda: self.refresh_cell(cell))
                 print(f"[DEBUG] Connected cell refresh signal")
+                
+            # Connect the action signals
+            cell.remove_requested.connect(lambda title: self.remove_metric_cell(title))
+            cell.move_up_requested.connect(lambda title: self.move_cell_up_by_name(title))
+            cell.move_down_requested.connect(lambda title: self.move_cell_down_by_name(title))
+            cell.duplicate_requested.connect(lambda title: self.duplicate_metric_cell_by_name(title))
                 
             print(f"[DEBUG] Metric cell added for {metric_name} (corpus: {corpus_id}).")
         else:
@@ -191,53 +286,85 @@ class DashboardController:
         """
         Remove the specified metric cell by its name.
         """
+        print(f"[DEBUG] Removing metric cell with name: {metric_name}")
         if self.view:
-            self.view.remove_cell_by_name(metric_name)
+            # Get the cell widget first
+            cell = self.view.get_cell_by_name(metric_name)
+            if cell:
+                # Remove from data map first
+                if cell in self.cell_data_map:
+                    del self.cell_data_map[cell]
+                # Then remove from view
+                self.view.remove_cell_by_name(metric_name)
+                print(f"[DEBUG] Successfully removed cell: {metric_name}")
+            else:
+                print(f"[ERROR] Could not find cell with name: {metric_name}")
 
-    def duplicate_metric_cell(self, metric_name, cell):
-        """Handle duplicate requests for a metric cell."""
-        if cell not in self.cell_data_map:
-            print(f"[ERROR] No metadata found for cell: {metric_name}")
-            return
+    def move_cell_up_by_name(self, metric_name):
+        """
+        Move the cell with the specified name up in the notebook.
+        """
+        print(f"[DEBUG] Moving up cell with name: {metric_name}")
+        if self.view:
+            cell = self.view.get_cell_by_name(metric_name)
+            if cell:
+                self.view.move_cell_up(cell)
+                print(f"[DEBUG] Successfully moved up cell: {metric_name}")
+            else:
+                print(f"[ERROR] Could not find cell with name: {metric_name}")
 
-        metadata = self.cell_data_map[cell]
-        category_key = metadata["category_key"]
-        sub_key = metadata["sub_key"]
-        sub_sub_key = metadata["sub_sub_key"]
-        visualization_type = metadata.get("visualization_type")  # If available in metadata
-        initial_mode = metadata["initial_mode"]
+    def move_cell_down_by_name(self, metric_name):
+        """
+        Move the cell with the specified name down in the notebook.
+        """
+        print(f"[DEBUG] Moving down cell with name: {metric_name}")
+        if self.view:
+            cell = self.view.get_cell_by_name(metric_name)
+            if cell:
+                self.view.move_cell_down(cell)
+                print(f"[DEBUG] Successfully moved down cell: {metric_name}")
+            else:
+                print(f"[ERROR] Could not find cell with name: {metric_name}")
 
-        # Debug
-        print(f"[DEBUG] Duplicating metric cell: {metric_name}")
-        print(f"[DEBUG] Metadata: {metadata}")
-
-        # Create a new cell widget using the existing metadata
-        file_reports = self.main_controller.file_reports
-        new_cell_widget = create_cell(
-            file_reports,
-            category_key,
-            sub_key,
-            sub_sub_key=sub_sub_key,
-            initial_mode=initial_mode
-        )
-
-        if new_cell_widget:
-            new_cell = self.view.add_cell(metric_name, new_cell_widget)
-
-            # Connect signals for the new cell
-            new_cell.remove_requested.connect(lambda title=new_cell.title: self.remove_metric_cell_instance(new_cell))
-            new_cell.duplicate_requested.connect(lambda: self.duplicate_metric_cell(metric_name, new_cell))
-            new_cell.move_up_requested.connect(lambda: self.move_metric_cell_up(new_cell))
-            new_cell.move_down_requested.connect(lambda: self.move_metric_cell_down(new_cell))
-            # Connect the refresh signal to the new refresh_cell method
-            if hasattr(new_cell, 'refresh_requested'):
-                new_cell.refresh_requested.connect(lambda: self.refresh_cell(new_cell))
-
-            # Store metadata for the new cell
-            self.cell_data_map[new_cell] = metadata.copy()
-            print(f"[DEBUG] Metric cell duplicated for {metric_name}.")
-        else:
-            print("[ERROR] Failed to duplicate metric cell.")
+    def duplicate_metric_cell_by_name(self, metric_name):
+        """
+        Duplicate the cell with the specified name.
+        """
+        print(f"[DEBUG] Duplicating cell with name: {metric_name}")
+        if self.view:
+            original_cell = self.view.get_cell_by_name(metric_name)
+            if original_cell and original_cell in self.cell_data_map:
+                # Get the metadata for the original cell
+                metadata = self.cell_data_map[original_cell]
+                
+                # Create a new cell with the same parameters
+                new_cell_widget = create_cell(
+                    self.main_controller,
+                    metadata["category_key"],
+                    metadata["sub_key"],
+                    sub_sub_key=metadata.get("sub_sub_key"),
+                    initial_mode=metadata.get("initial_mode", "nominal"),
+                    corpus_id=metadata.get("corpus_id")
+                )
+                
+                if new_cell_widget:
+                    # Insert the new cell just below the original
+                    new_cell = self.view.insert_cell_below(original_cell, metric_name, new_cell_widget)
+                    
+                    # Connect all signals for the new cell
+                    new_cell.remove_requested.connect(lambda title: self.remove_metric_cell(title))
+                    new_cell.move_up_requested.connect(lambda title: self.move_cell_up_by_name(title))
+                    new_cell.move_down_requested.connect(lambda title: self.move_cell_down_by_name(title))
+                    new_cell.duplicate_requested.connect(lambda title: self.duplicate_metric_cell_by_name(title))
+                    
+                    # Store the metadata for the new cell
+                    self.cell_data_map[new_cell] = metadata.copy()
+                    
+                    print(f"[DEBUG] Successfully duplicated cell: {metric_name}")
+                else:
+                    print(f"[ERROR] Failed to create new cell widget for duplication")
+            else:
+                print(f"[ERROR] Could not find cell with name: {metric_name} or it has no metadata")
 
     def move_metric_cell_up(self, cell):
         """
@@ -297,6 +424,15 @@ class DashboardController:
                 if cell_widget:
                     cell = self.view.add_cell(config.get("name", "Metric"), cell_widget)
                     self.cell_data_map[cell] = config
+                    
+                    # Connect all signals for the recreated cell
+                    if hasattr(cell, 'refresh_requested'):
+                        cell.refresh_requested.connect(lambda c=cell: self.refresh_cell(c))
+                    cell.remove_requested.connect(lambda title: self.remove_metric_cell(title))
+                    cell.move_up_requested.connect(lambda title: self.move_cell_up_by_name(title))
+                    cell.move_down_requested.connect(lambda title: self.move_cell_down_by_name(title))
+                    cell.duplicate_requested.connect(lambda title: self.duplicate_metric_cell_by_name(title))
+                    
                     print(f"[DEBUG] Recreated cell for {config.get('name')} anchored to corpus: {corpus_id}")
                 else:
                     print(f"[ERROR] Failed to recreate cell for {config.get('name')}")
