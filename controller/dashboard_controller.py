@@ -88,12 +88,15 @@ class DashboardController:
             print("[ERROR] No single active corpus is set. Cannot create visualization.")
             return
             
-        # Always generate a fresh report for this corpus
-        print(f"[DEBUG] Generating fresh report for {corpus_id}")
-        success = self.main_controller.generate_report_for_corpus(corpus_id)
-        if not success:
-            print(f"[ERROR] Failed to generate report for corpus: {corpus_id}")
-            return
+        # Check if report exists for this corpus - compute only if needed (lazy loading)
+        if hasattr(self.main_controller, 'report_manager') and not self.main_controller.report_manager.has_report_for_corpus(corpus_id):
+            print(f"[DEBUG] Generating initial report for {corpus_id}")
+            success = self.main_controller.generate_report_for_corpus(corpus_id)
+            if not success:
+                print(f"[ERROR] Failed to generate report for corpus: {corpus_id}")
+                return
+        else:
+            print(f"[DEBUG] Using existing report for {corpus_id}")
 
         # Create the cell widget with corpus ID
         cell_widget = create_cell(
@@ -108,9 +111,6 @@ class DashboardController:
         if cell_widget:
             # Add the cell to the view
             cell = self.view.add_cell(metric_name, cell_widget)
-            # Connect the refresh signal from the cell to the new refresh_cell method
-            if hasattr(cell, 'refresh_requested'):
-                cell.refresh_requested.connect(lambda: self.refresh_cell(cell))
             
             # Store metadata including corpus_id
             self.cell_data_map[cell] = {
@@ -121,6 +121,12 @@ class DashboardController:
                 "initial_mode": initial_mode,
                 "corpus_id": corpus_id  # Store corpus ID in metadata
             }
+            
+            # Connect cell's refresh button to our refresh_cell method
+            if hasattr(cell, 'refresh_requested'):
+                cell.refresh_requested.connect(lambda: self.refresh_cell(cell))
+                print(f"[DEBUG] Connected cell refresh signal")
+                
             print(f"[DEBUG] Metric cell added for {metric_name} (corpus: {corpus_id}).")
         else:
             print("[ERROR] Cell widget creation failed.")
@@ -134,28 +140,48 @@ class DashboardController:
             if corpus_id and self.main_controller:
                 print(f"[DEBUG] Refreshing cell for anchored corpus: {corpus_id}")
                 
-                # Generate fresh report for this specific corpus if needed
-                if not self.main_controller.report_manager.has_report_for_corpus(corpus_id):
+                # Check if report exists before generating - lazy refresh
+                if hasattr(self.main_controller, 'has_report_for_corpus') and not self.main_controller.has_report_for_corpus(corpus_id):
+                    print(f"[DEBUG] Generating fresh report for {corpus_id} during refresh")
                     self.main_controller.generate_report_for_corpus(corpus_id)
+                else:
+                    print(f"[DEBUG] Using existing report for {corpus_id} during refresh")
                 
-                # Get the report for this corpus
-                report = self.main_controller.report_manager.get_report_for_corpus(corpus_id)
-                
-                # Retrieve visualization instance stored in cell.stored_content
-                vis_instance = getattr(cell, 'stored_content', None)
-                if vis_instance is not None:
-                    # Update the visualization with fresh data
-                    if hasattr(vis_instance, 'update_data'):
-                        vis_instance.update_data(report)
-                    elif hasattr(vis_instance, 'update_data_source'):
-                        vis_instance.update_data_source()
+                # Retrieve the layout widget stored in cell.stored_content
+                layout_widget = getattr(cell, 'stored_content', None)
+                if layout_widget is not None:
+                    print(f"[DEBUG] Found layout widget: {type(layout_widget).__name__}")
+                    
+                    # Try to access the visualization directly from layout widget
+                    vis_instance = getattr(layout_widget, 'vis', None)
+                    if vis_instance is not None:
+                        # Update the visualization with fresh data
+                        print(f"[DEBUG] Found visualization instance: {type(vis_instance).__name__}")
+                        
+                        # Universal approach - try all update methods in sequence
+                        if hasattr(vis_instance, 'update_data_source'):
+                            vis_instance.update_data_source()
+                            print(f"[DEBUG] Called update_data_source on visualization")
+                            
+                        if hasattr(vis_instance, 'update_data'):
+                            vis_instance.update_data()
+                            print(f"[DEBUG] Called update_data on visualization")
+                            
                         if hasattr(vis_instance, 'update_plot'):
                             vis_instance.update_plot()
+                            print(f"[DEBUG] Called update_plot on visualization")
+                            
+                        print(f"[DEBUG] Refreshed cell '{getattr(cell, 'title', 'unknown')}' with data from corpus {corpus_id}")
                     else:
-                        print("[WARNING] Visualization lacks update methods")
-                    print(f"[DEBUG] Refreshed cell '{getattr(cell, 'title', 'unknown')}' with updated data.")
+                        # Try refreshing the layout directly if it has a refresh method
+                        if hasattr(layout_widget, 'refresh'):
+                            print(f"[DEBUG] Layout has refresh method, calling it directly")
+                            layout_widget.refresh()
+                            print(f"[DEBUG] Refreshed layout directly for corpus {corpus_id}")
+                        else:
+                            print(f"[WARNING] Cannot find visualization instance or refresh method")
                 else:
-                    print("[DEBUG] No visualization instance found in cell for refresh.")
+                    print("[DEBUG] No layout widget found in cell")
             else:
                 print(f"[ERROR] No corpus_id for cell {metadata.get('name', 'unknown')}")
         else:

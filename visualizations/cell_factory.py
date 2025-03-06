@@ -21,8 +21,10 @@ def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mod
     Returns:
         A visualization layout widget configured for the specified corpus
     """
+    print(f"[DEBUG] create_cell called with corpus_id: {corpus_id}")
     metric_data = get_metric(category_key, sub_key, sub_sub_key)
     if not metric_data:
+        print(f"[ERROR] No metric data for {category_key}, {sub_key}, {sub_sub_key}")
         return create_placeholder()
 
     vis_type = metric_data.get("visualization_type")
@@ -37,6 +39,7 @@ def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mod
                 initial_mode=metric_data.get("initial_mode", initial_mode),
                 corpus_id=corpus_id
             )
+            print(f"[DEBUG] Created vis_class {vis_type} with corpus_id: {corpus_id}")
             layout = layout_class(vis)
             
             # Add refresh capability to the layout
@@ -44,13 +47,18 @@ def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mod
                 layout.refresh_requested = pyqtSignal()
                 layout.refresh_requested.connect(lambda: layout.refresh_visualization())
             
+            print(f"[DEBUG] Returning layout for {vis_type}")
             return layout
         elif layout_class:
             # For layouts that don't use a visualization class
             if vis_type == "frequency_reports":
                 # Pass controller and corpus_id instead of file_reports
-                return layout_class(controller, corpus_id)
-            return layout_class(controller, corpus_id)
+                layout = layout_class(controller, corpus_id)
+                print(f"[DEBUG] Created special layout {vis_type} with corpus_id: {corpus_id}")
+            else:
+                layout = layout_class(controller, corpus_id)
+                print(f"[DEBUG] Created layout {vis_type} with controller")
+            return layout
     except Exception as e:
         print(f"[ERROR] Failed to create cell widget: {e}")
         return create_placeholder()

@@ -30,6 +30,12 @@ class BaseMetricLayout:
         title_label.setStyleSheet("color: #fff; font-size: 14px; font-weight: bold;")
         header_layout.addWidget(title_label)
         
+        # Add corpus indicator if available
+        if hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
+            corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
+            corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+            header_layout.addWidget(corpus_label)
+        
         header_layout.addStretch()
         
         refresh_btn = QToolButton()
@@ -65,8 +71,25 @@ class BaseMetricLayout:
         pass
 
     def refresh_visualization(self):
-        """Override in subclasses to handle refresh."""
-        pass
+        """Universal refresh method that works with all visualization types."""
+        print(f"[DEBUG] BaseMetricLayout.refresh_visualization for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+        
+        # First update the data source (BaseVisualization method)
+        if hasattr(self.vis, 'update_data_source'):
+            print(f"[DEBUG] Calling update_data_source on {type(self.vis).__name__}")
+            self.vis.update_data_source()
+        
+        # Then update the data (for BO score visualizations)
+        if hasattr(self.vis, 'update_data'):
+            print(f"[DEBUG] Calling update_data on {type(self.vis).__name__}")
+            self.vis.update_data()
+        
+        # Finally update the plot (for frequency distribution)
+        if hasattr(self.vis, 'update_plot'):
+            print(f"[DEBUG] Calling update_plot on {type(self.vis).__name__}")
+            self.vis.update_plot()
+            
+        print(f"[DEBUG] Visualization refreshed for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
 
 
 class FrequencyDistributionLayout(BaseMetricLayout):
@@ -104,25 +127,29 @@ class FrequencyDistributionLayout(BaseMetricLayout):
 
     def refresh_visualization(self):
         """Refresh the frequency distribution plot."""
+        print(f"[DEBUG] FrequencyDistributionLayout.refresh_visualization called for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+        # First make sure we have the latest data
+        if hasattr(self.vis, 'update_data_source'):
+            self.vis.update_data_source()
+        
+        # Then update the plot
         if hasattr(self.vis, 'update_plot'):
             self.vis.update_plot()
+        
+        print(f"[DEBUG] Frequency distribution refreshed for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
 
 
 class FrequencyReportsLayout(QWidget):
     def __init__(self, controller, corpus_id=None, parent=None):
         super().__init__(parent)
 
-        print("DEBUG: FrequencyReportsLayout __init__ called!")
+        print(f"DEBUG: FrequencyReportsLayout __init__ called with corpus_id: {corpus_id}")
         self.controller = controller
         self.corpus_id = corpus_id
+        self.file_reports = {}
         
         # Get the appropriate data source
-        if corpus_id and hasattr(controller, 'get_report_for_corpus'):
-            self.file_reports = controller.get_report_for_corpus(corpus_id)
-            print(f"DEBUG: Using data for corpus: {corpus_id}")
-        else:
-            self.file_reports = getattr(controller, 'file_reports', {})
-            print("DEBUG: Using current file_reports (no corpus_id)")
+        self.update_data_source()
             
         self.reports_list = []
         self._build_aggregated_list()
@@ -140,6 +167,13 @@ class FrequencyReportsLayout(QWidget):
         self.title_label.setStyleSheet("font-size:16px; color:#FFFFFF;")
         main_layout.addWidget(self.title_label)
 
+        # Add corpus indicator
+        if self.corpus_id:
+            self.corpus_label = QLabel(f"Corpus: {self.corpus_id}")
+            self.corpus_label.setAlignment(Qt.AlignCenter)
+            self.corpus_label.setStyleSheet("font-size:12px; color:#AAAAAA;")
+            main_layout.addWidget(self.corpus_label)
+
         # Navigation Buttons
         nav_layout = QHBoxLayout()
         self.prev_btn = QPushButton("Previous")
@@ -149,6 +183,12 @@ class FrequencyReportsLayout(QWidget):
         self.next_btn = QPushButton("Next")
         self.next_btn.clicked.connect(self.show_next_report)
         nav_layout.addWidget(self.next_btn)
+
+        # Add refresh button
+        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn.clicked.connect(self.refresh)
+        self.refresh_btn.setToolTip(f"Refresh data from corpus: {self.corpus_id}")
+        nav_layout.addWidget(self.refresh_btn)
 
         nav_layout.addStretch()
         main_layout.addLayout(nav_layout)
@@ -180,9 +220,57 @@ class FrequencyReportsLayout(QWidget):
 
         # Initialize with the first report
         self.update_table()
+        
+    def update_data_source(self):
+        """Update the data source based on corpus_id - similar to BaseVisualization"""
+        # Always start with empty reports to avoid stale data
+        self.file_reports = {}
+        
+        if not self.controller:
+            print("[ERROR] FrequencyReportsLayout has no controller reference")
+            return
+            
+        if not self.corpus_id:
+            print("[ERROR] FrequencyReportsLayout has no corpus_id")
+            return
+            
+        if not hasattr(self.controller, 'get_report_for_corpus'):
+            print("[ERROR] FrequencyReportsLayout controller lacks get_report_for_corpus method")
+            return
+            
+        # Check if report exists and generate if needed
+        if hasattr(self.controller, 'has_report_for_corpus'):
+            has_report = self.controller.has_report_for_corpus(self.corpus_id)
+            print(f"[DEBUG] FrequencyReportsLayout checking if report exists for {self.corpus_id}: {has_report}")
+            
+            if not has_report:
+                print(f"[DEBUG] FrequencyReportsLayout generating initial report for corpus: {self.corpus_id}")
+                success = self.controller.generate_report_for_corpus(self.corpus_id)
+                if not success:
+                    print(f"[ERROR] Failed to generate report for corpus: {self.corpus_id}")
+                    return
+                print(f"[DEBUG] FrequencyReportsLayout report generation success: {success}")
+        else:
+            # If has_report_for_corpus doesn't exist, always try to generate
+            print(f"[DEBUG] FrequencyReportsLayout generating report for corpus (no has_report method): {self.corpus_id}")
+            self.controller.generate_report_for_corpus(self.corpus_id)
+            
+        # Get corpus-specific data
+        self.file_reports = self.controller.get_report_for_corpus(self.corpus_id)
+        
+        # Verify we got data
+        if not self.file_reports:
+            print(f"[ERROR] FrequencyReportsLayout got empty report for corpus: {self.corpus_id}")
+        else:
+            print(f"[DEBUG] FrequencyReportsLayout fetched report for corpus: {self.corpus_id}, keys: {list(self.file_reports.keys())}")
 
     def _build_aggregated_list(self):
         """Collect Master first, then others."""
+        self.reports_list = []
+        if not self.file_reports:
+            print(f"[ERROR] No file_reports data to build list for corpus: {self.corpus_id}")
+            return
+            
         if "Master Report" in self.file_reports:
             self.reports_list.append({
                 "title": "Master Report",
@@ -195,6 +283,8 @@ class FrequencyReportsLayout(QWidget):
                     "title": k,
                     "data": v
                 })
+                
+        print(f"[DEBUG] Built reports list with {len(self.reports_list)} items for corpus: {self.corpus_id}")
 
     def update_table(self):
         if not self.reports_list:
@@ -243,14 +333,14 @@ class FrequencyReportsLayout(QWidget):
 
     def show_previous_report(self):
         """Show the previous report."""
-        print("DEBUG: show_previous_report() in FrequencyReportsLayout")
+        print(f"DEBUG: show_previous_report() in FrequencyReportsLayout for corpus: {self.corpus_id}")
         if self.reports_list:
             self.current_index = (self.current_index - 1) % len(self.reports_list)
             self.update_table()
 
     def show_next_report(self):
         """Show the next report."""
-        print("DEBUG: show_next_report() in FrequencyReportsLayout")
+        print(f"DEBUG: show_next_report() in FrequencyReportsLayout for corpus: {self.corpus_id}")
         if self.reports_list:
             self.current_index = (self.current_index + 1) % len(self.reports_list)
             self.update_table()
@@ -260,10 +350,7 @@ class FrequencyReportsLayout(QWidget):
         print(f"DEBUG: Refreshing FrequencyReportsLayout for corpus: {self.corpus_id}")
         
         # Update the data source
-        if self.corpus_id and hasattr(self.controller, 'get_report_for_corpus'):
-            self.file_reports = self.controller.get_report_for_corpus(self.corpus_id)
-        else:
-            self.file_reports = getattr(self.controller, 'file_reports', {})
+        self.update_data_source()
             
         # Rebuild the reports list and update the table
         self.reports_list = []
@@ -296,11 +383,42 @@ class BOScoreBarLayout:
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
+        # Header layout with title, corpus indicator and refresh button
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Title
         title_label = QLabel("BO Score Bar Chart")
         title_label.setStyleSheet("color: #fff; font-size:16px;")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        
+        # Add corpus indicator if available
+        if hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
+            corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
+            corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+            header_layout.addWidget(corpus_label)
+            
+        header_layout.addStretch()
+        
+        # Add refresh button
+        refresh_btn = QToolButton()
+        refresh_btn.setText("⟳")
+        refresh_btn.setToolTip("Refresh visualization")
+        refresh_btn.setStyleSheet("""
+            QToolButton {
+                color: #888888;
+                border: none;
+                font-size: 16px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+            }
+        """)
+        refresh_btn.clicked.connect(self.refresh_visualization)
+        header_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(header_layout)
 
         # Controls for toggling visibility
         controls_layout = QHBoxLayout()
@@ -380,12 +498,16 @@ class BOScoreBarLayout:
         self.show_bon2 = not self.show_bon2
         self.update_plot()
         print(f"[DEBUG] on_bon2_toggle_click -> show_bon2: {self.show_bon2}")
-
-
-
-
-
-
+        
+    def refresh_visualization(self):
+        """Refresh visualization data from its anchored corpus."""
+        print(f"[DEBUG] BOScoreBarLayout.refresh_visualization called")
+        if hasattr(self.vis, 'update_data'):
+            self.vis.update_data()
+            print(f"[DEBUG] Updated BO Score Bar data for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+            self.update_plot()
+        else:
+            print("[WARNING] BOScoreBarVisualization lacks update_data method")
 
 
 class BOScoreLineLayout:
@@ -414,11 +536,42 @@ class BOScoreLineLayout:
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
+        # Header layout with title, corpus indicator and refresh button
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Title
         title_label = QLabel("BO Score Line Graph")
         title_label.setStyleSheet("color: #fff; font-size:16px;")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        
+        # Add corpus indicator if available
+        if hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
+            corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
+            corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+            header_layout.addWidget(corpus_label)
+            
+        header_layout.addStretch()
+        
+        # Add refresh button
+        refresh_btn = QToolButton()
+        refresh_btn.setText("⟳")
+        refresh_btn.setToolTip("Refresh visualization")
+        refresh_btn.setStyleSheet("""
+            QToolButton {
+                color: #888888;
+                border: none;
+                font-size: 16px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+            }
+        """)
+        refresh_btn.clicked.connect(self.refresh_visualization)
+        header_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(header_layout)
 
         # Controls for toggling visibility and scaling
         controls_layout = QHBoxLayout()
@@ -536,7 +689,16 @@ class BOScoreLineLayout:
         self.y_log_scale = not self.y_log_scale
         self.update_plot()
         print(f"[DEBUG] on_y_log_scale_toggle_click -> y_log_scale: {self.y_log_scale}")
-
+        
+    def refresh_visualization(self):
+        """Refresh visualization data from its anchored corpus."""
+        print(f"[DEBUG] BOScoreLineLayout.refresh_visualization called")
+        if hasattr(self.vis, 'update_data'):
+            self.vis.update_data()
+            print(f"[DEBUG] Updated BO Score Line data for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+            self.update_plot()
+        else:
+            print("[WARNING] BOScoreLineVisualization lacks update_data method")
 
 
 class BOScoreTableLayout:
@@ -554,10 +716,42 @@ class BOScoreTableLayout:
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
+        # Header layout with title, corpus indicator and refresh button
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Title
         title_label = QLabel("BO Score Table")
         title_label.setStyleSheet("color: #fff; font-size:16px;")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        
+        # Add corpus indicator if available
+        if hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
+            corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
+            corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+            header_layout.addWidget(corpus_label)
+            
+        header_layout.addStretch()
+        
+        # Add refresh button
+        refresh_btn = QToolButton()
+        refresh_btn.setText("⟳")
+        refresh_btn.setToolTip("Refresh visualization")
+        refresh_btn.setStyleSheet("""
+            QToolButton {
+                color: #888888;
+                border: none;
+                font-size: 16px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+            }
+        """)
+        refresh_btn.clicked.connect(self.refresh_visualization)
+        header_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(header_layout)
 
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(4)
@@ -622,4 +816,14 @@ class BOScoreTableLayout:
                         item.setBackground(QColor("#333"))  # Darker background for even rows
                     else:
                         item.setBackground(QColor("#222"))  # Slightly lighter background for odd rows
+                        
+    def refresh_visualization(self):
+        """Refresh visualization data from its anchored corpus."""
+        print(f"[DEBUG] BOScoreTableLayout.refresh_visualization called")
+        if hasattr(self.vis, 'update_data'):
+            self.vis.update_data()
+            print(f"[DEBUG] Updated BO Score Table data for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+            self.fill_table()
+        else:
+            print("[WARNING] BOScoreTableVisualization lacks update_data method")
 

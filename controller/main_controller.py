@@ -143,13 +143,16 @@ class MainController(QObject):
                 files_to_analyze = self.active_corpus.get_files()
                 corpus_name = self.active_corpus.name
                 logging.info(f"Active corpus: {corpus_name}")
+                print(f"[DEBUG] Running analysis for corpus: {corpus_name} with {len(files_to_analyze)} files")
             else:
                 files_to_analyze = list(self.imported_files)
                 corpus_name = "Default Corpus"
                 logging.info("No active corpus; using all imported files.")
+                print(f"[DEBUG] Running analysis for Default Corpus with {len(files_to_analyze)} files")
             
             if not files_to_analyze:
                 self.view.display_report("No files available for analysis.")
+                print(f"[ERROR] No files available for analysis in corpus: {corpus_name}")
                 return False
             
             # Clear previous analysis data.
@@ -211,10 +214,19 @@ class MainController(QObject):
             else:
                 logging.warning("No data to analyze")
                 self.view.display_report("No data available for analysis")
+                print(f"[ERROR] No data to analyze for corpus: {corpus_name}")
                 return False
                 
-            # Store the report in the report manager (moved outside the if block)
+            # Store the report in the report manager
+            print(f"[DEBUG] Storing report for corpus: {corpus_name} with {len(self.file_reports)} entries")
             self.report_manager.update_report_for_corpus(corpus_name, self.file_reports)
+            
+            # Verify the report was stored
+            stored_report = self.report_manager.get_report_for_corpus(corpus_name)
+            if stored_report:
+                print(f"[DEBUG] Verified report stored for corpus: {corpus_name}, keys: {list(stored_report.keys())}")
+            else:
+                print(f"[ERROR] Failed to store report for corpus: {corpus_name}")
                 
             # Update any open dashboard
             if hasattr(self, 'dashboard_controller'):
@@ -226,6 +238,7 @@ class MainController(QObject):
         except Exception as e:
             logging.error(f"Analysis failed: {str(e)}")
             self.view.display_report(f"Analysis error: {str(e)}")
+            print(f"[ERROR] Analysis failed for corpus: {corpus_name}: {str(e)}")
             return False
 
     def generate_report(self, stats, report_title):
@@ -502,19 +515,105 @@ class MainController(QObject):
             
         # Store the current active corpus
         previous_active = self.active_corpus
+        previous_reports = self.file_reports.copy() if hasattr(self, 'file_reports') else {}
         
         # Temporarily set the requested corpus as active
         self.active_corpus = self.corpora[corpus_name]
         
-        # Run the analysis
+        # Run the analysis - this will update file_reports and store in report_manager
+        print(f"[DEBUG] Generating report for corpus: {corpus_name}")
         success = self.run_analysis()
+        
+        if success:
+            # Explicitly ensure the report is stored in the report manager
+            # This is redundant with run_analysis but ensures it's definitely stored
+            if hasattr(self, 'report_manager'):
+                print(f"[DEBUG] Explicitly storing report for corpus: {corpus_name}")
+                self.report_manager.update_report_for_corpus(corpus_name, self.file_reports)
+                
+                # Verify the report was stored
+                stored_report = self.report_manager.get_report_for_corpus(corpus_name)
+                if stored_report:
+                    print(f"[DEBUG] Verified report stored for corpus: {corpus_name}, keys: {list(stored_report.keys())}")
+                else:
+                    print(f"[ERROR] Failed to store report for corpus: {corpus_name}")
         
         # Restore the original active corpus
         self.active_corpus = previous_active
         
-        # If we had an active corpus before, restore its report to file_reports
+        # Restore the previous file_reports to avoid confusion
         if previous_active:
-            self.file_reports = self.report_manager.get_report_for_corpus(previous_active.name)
+            print(f"[DEBUG] Restoring previous active corpus: {previous_active.name}")
+            self.file_reports = previous_reports
             
         return success
+
+    def has_report_for_corpus(self, corpus_name):
+        """
+        Check if a report already exists for the specified corpus.
+        
+        Args:
+            corpus_name (str): The name of the corpus to check
+            
+        Returns:
+            bool: True if a report exists, False otherwise
+        """
+        if hasattr(self, 'report_manager'):
+            return self.report_manager.has_report_for_corpus(corpus_name)
+        return False
+
+    def debug_report_status(self, corpus_name=None):
+        """
+        Print debug information about report status for a corpus or all corpora.
+        
+        Args:
+            corpus_name (str, optional): The name of the corpus to check. If None, check all corpora.
+        """
+        if not hasattr(self, 'report_manager'):
+            print("[ERROR] No report manager available")
+            return
+            
+        if corpus_name:
+            # Check a specific corpus
+            if corpus_name not in self.corpora:
+                print(f"[ERROR] Corpus '{corpus_name}' not found")
+                return
+                
+            has_report = self.report_manager.has_report_for_corpus(corpus_name)
+            print(f"[DEBUG] Report status for corpus '{corpus_name}': {'Available' if has_report else 'Not available'}")
+            
+            if has_report:
+                report = self.report_manager.get_report_for_corpus(corpus_name)
+                print(f"[DEBUG] Report keys for corpus '{corpus_name}': {list(report.keys())}")
+                
+                # Check if there's a Master Report
+                if "Master Report" in report:
+                    master_data = report["Master Report"]
+                    if "data" in master_data and "word_stats" in master_data["data"]:
+                        word_stats = master_data["data"]["word_stats"]
+                        print(f"[DEBUG] Master Report for corpus '{corpus_name}' has {len(word_stats)} word stats")
+                    else:
+                        print(f"[DEBUG] Master Report for corpus '{corpus_name}' has no word stats")
+                else:
+                    print(f"[DEBUG] No Master Report for corpus '{corpus_name}'")
+                    
+                # Count individual file reports
+                file_reports = [k for k in report.keys() if k != "Master Report"]
+                print(f"[DEBUG] Corpus '{corpus_name}' has {len(file_reports)} individual file reports")
+        else:
+            # Check all corpora
+            available_reports = self.report_manager.list_available_reports()
+            print(f"[DEBUG] Available reports: {available_reports}")
+            
+            for corpus_name in self.corpora:
+                has_report = corpus_name in available_reports
+                print(f"[DEBUG] Report status for corpus '{corpus_name}': {'Available' if has_report else 'Not available'}")
+                
+                if has_report:
+                    report = self.report_manager.get_report_for_corpus(corpus_name)
+                    print(f"[DEBUG] Report keys for corpus '{corpus_name}': {list(report.keys())}")
+                    
+                    # Count individual file reports
+                    file_reports = [k for k in report.keys() if k != "Master Report"]
+                    print(f"[DEBUG] Corpus '{corpus_name}' has {len(file_reports)} individual file reports")
 
