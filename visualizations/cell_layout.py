@@ -1,11 +1,13 @@
 # cell_layout.py
 from visualizations.metric_visualizations import FrequencyReportsAggregator
 import os
+import math
+import pyqtgraph as pg
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
                             QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton
                             )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtGui import QColor, QBrush, QPalette
 from pyqtgraph import PlotWidget, BarGraphItem, mkPen
 import numpy as np
 
@@ -142,221 +144,350 @@ class FrequencyDistributionLayout(BaseMetricLayout):
 class FrequencyReportsLayout(QWidget):
     def __init__(self, controller, corpus_id=None, parent=None):
         super().__init__(parent)
-
-        print(f"DEBUG: FrequencyReportsLayout __init__ called with corpus_id: {corpus_id}")
         self.controller = controller
         self.corpus_id = corpus_id
-        self.file_reports = {}
-        
-        # Get the appropriate data source
-        self.update_data_source()
-            
-        self.reports_list = []
-        self._build_aggregated_list()
-
+        self.aggregated_list = []
         self.current_index = 0
-
-        # Build the UI
+        
+        print(f"[DEBUG] FrequencyReportsLayout initialized with corpus_id: {corpus_id}")
+        
+        # Set dark background to match application theme
+        self.setStyleSheet("background-color: #2b2b2b; color: white;")
+        
+        # Create the layout
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(10)
-
-        # Title Label
-        self.title_label = QLabel()
+        main_layout.setContentsMargins(2, 2, 2, 2)  # Tighter margins
+        main_layout.setSpacing(5)  # Reduce spacing
+        
+        # Create header with report title
+        self.title_label = QLabel("Frequency Reports")
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("font-size:16px; color:#FFFFFF;")
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: white; margin-bottom: 2px;")
         main_layout.addWidget(self.title_label)
-
-        # Add corpus indicator
-        if self.corpus_id:
-            self.corpus_label = QLabel(f"Corpus: {self.corpus_id}")
-            self.corpus_label.setAlignment(Qt.AlignCenter)
-            self.corpus_label.setStyleSheet("font-size:12px; color:#AAAAAA;")
-            main_layout.addWidget(self.corpus_label)
-
-        # Navigation Buttons
+        
+        # Create navigation with corpus indicator (like BO table has)
         nav_layout = QHBoxLayout()
-        self.prev_btn = QPushButton("Previous")
-        self.prev_btn.clicked.connect(self.show_previous_report)
-        nav_layout.addWidget(self.prev_btn)
-
-        self.next_btn = QPushButton("Next")
-        self.next_btn.clicked.connect(self.show_next_report)
-        nav_layout.addWidget(self.next_btn)
-
-        # Add refresh button
-        self.refresh_btn = QPushButton("Refresh")
-        self.refresh_btn.clicked.connect(self.refresh)
-        self.refresh_btn.setToolTip(f"Refresh data from corpus: {self.corpus_id}")
-        nav_layout.addWidget(self.refresh_btn)
-
-        nav_layout.addStretch()
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.prev_button = QPushButton("← Previous")
+        self.prev_button.setStyleSheet("background-color: #444; color: white; border: none; padding: 4px 8px;")
+        self.prev_button.clicked.connect(self.show_previous_report)
+        
+        self.report_label = QLabel("Report: 1 of 1")
+        self.report_label.setAlignment(Qt.AlignCenter)
+        self.report_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        
+        self.next_button = QPushButton("Next →")
+        self.next_button.setStyleSheet("background-color: #444; color: white; border: none; padding: 4px 8px;")
+        self.next_button.clicked.connect(self.show_next_report)
+        
+        # Like BO Score Table, add corpus indicator
+        self.corpus_label = QLabel(f"Corpus: {corpus_id}")
+        self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        self.corpus_label.setAlignment(Qt.AlignRight)
+        
+        nav_layout.addWidget(self.prev_button)
+        nav_layout.addWidget(self.report_label, 1)
+        nav_layout.addWidget(self.next_button)
+        nav_layout.addWidget(self.corpus_label)
+        
         main_layout.addLayout(nav_layout)
-
-        # Table Widget
+        
+        # Stats label for total/unique words
+        self.stats_label = QLabel()
+        self.stats_label.setAlignment(Qt.AlignCenter)
+        self.stats_label.setStyleSheet("color: #ddd; font-size: 12px; margin-top: 2px; margin-bottom: 2px;")
+        main_layout.addWidget(self.stats_label)
+        
+        # Create table with matching style to BO Score Table
         self.table_widget = QTableWidget()
-        self.table_widget.setColumnCount(5)  # Only the original 5 columns
-        self.table_widget.setHorizontalHeaderLabels(["Rank", "Word", "Count", "Pct", "Z", "LogZ"])
+        self.table_widget.setColumnCount(6)  # Add columns as requested
+        self.table_widget.setHorizontalHeaderLabels([
+            "Rank", "Word", "Count", "Percentage", "Z-Score", "Log Z-Score"
+        ])
+        
+        # Style the table like BO Score Table
         self.table_widget.setStyleSheet("""
             QTableWidget {
                 background-color: #2b2b2b;
-                color: #ffffff;
-                alternate-background-color: #3b3b3b;
-                gridline-color: #555555;
+                color: white;
+                gridline-color: #444;
+                border: none;
+            }
+            QTableWidget::item {
+                padding: 4px;
+            }
+            QTableWidget::item:selected {
+                background-color: #3d3d3d;
             }
             QHeaderView::section {
-                background-color: #444444;
-                color: #ffffff;
+                background-color: #444;
+                color: white;
                 padding: 4px;
-                border: 1px solid #555555;
+                border: 1px solid #555;
             }
             QTableCornerButton::section {
-                background-color: #444444; /* Match dark mode for top-left cell */
-                border: 1px solid #555555;
+                background-color: #444;
+                border: 1px solid #555;
             }
         """)
+        
+        # Configure table behavior
+        self.table_widget.setEditTriggers(QTableWidget.NoEditTriggers)  # Read-only
         self.table_widget.setAlternatingRowColors(True)
+        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # Equal columns
+        self.table_widget.verticalHeader().setVisible(False)  # Hide row numbers
+        self.table_widget.setSortingEnabled(False)  # Disable sorting for now
+        
         main_layout.addWidget(self.table_widget)
+        
+        # Disable buttons until we have data
+        self.prev_button.setEnabled(False)
+        self.next_button.setEnabled(False)
+        
+        # Update with data if we have a corpus_id
+        if self.corpus_id:
+            self.update_data_source()
+        else:
+            print(f"[ERROR] FrequencyReportsLayout has no corpus_id, cannot fetch data")
 
-        # Initialize with the first report
-        self.update_table()
-        
     def update_data_source(self):
-        """Update the data source based on corpus_id - similar to BaseVisualization"""
-        # Always start with empty reports to avoid stale data
-        self.file_reports = {}
-        
-        if not self.controller:
-            print("[ERROR] FrequencyReportsLayout has no controller reference")
-            return
+        """
+        Fetch and update the data source using the controller and corpus_id.
+        """
+        try:
+            print(f"[DEBUG] FrequencyReportsLayout updating data source for corpus_id: {self.corpus_id}")
             
-        if not self.corpus_id:
-            print("[ERROR] FrequencyReportsLayout has no corpus_id")
-            return
+            # Reset existing data
+            self.aggregated_list = []
+            self.current_index = 0
             
-        if not hasattr(self.controller, 'get_report_for_corpus'):
-            print("[ERROR] FrequencyReportsLayout controller lacks get_report_for_corpus method")
-            return
+            if not self.controller:
+                print(f"[ERROR] FrequencyReportsLayout has no controller reference")
+                return
+                
+            if not self.corpus_id:
+                print(f"[ERROR] FrequencyReportsLayout has no corpus_id")
+                return
             
-        # Check if report exists and generate if needed
-        if hasattr(self.controller, 'has_report_for_corpus'):
-            has_report = self.controller.has_report_for_corpus(self.corpus_id)
-            print(f"[DEBUG] FrequencyReportsLayout checking if report exists for {self.corpus_id}: {has_report}")
-            
-            if not has_report:
-                print(f"[DEBUG] FrequencyReportsLayout generating initial report for corpus: {self.corpus_id}")
+            # Update corpus indicator  
+            self.corpus_label.setText(f"Corpus: {self.corpus_id}")
+                
+            # Check if report exists for this corpus
+            has_report = False
+            if hasattr(self.controller, 'has_report_for_corpus'):
+                has_report = self.controller.has_report_for_corpus(self.corpus_id)
+                print(f"[DEBUG] FrequencyReportsLayout checking for report: {has_report}")
+                
+            # Generate report if needed
+            if not has_report and hasattr(self.controller, 'generate_report_for_corpus'):
+                print(f"[DEBUG] FrequencyReportsLayout generating report for corpus: {self.corpus_id}")
                 success = self.controller.generate_report_for_corpus(self.corpus_id)
                 if not success:
-                    print(f"[ERROR] Failed to generate report for corpus: {self.corpus_id}")
+                    print(f"[ERROR] FrequencyReportsLayout failed to generate report")
                     return
-                print(f"[DEBUG] FrequencyReportsLayout report generation success: {success}")
-        else:
-            # If has_report_for_corpus doesn't exist, always try to generate
-            print(f"[DEBUG] FrequencyReportsLayout generating report for corpus (no has_report method): {self.corpus_id}")
-            self.controller.generate_report_for_corpus(self.corpus_id)
-            
-        # Get corpus-specific data
-        self.file_reports = self.controller.get_report_for_corpus(self.corpus_id)
-        
-        # Verify we got data
-        if not self.file_reports:
-            print(f"[ERROR] FrequencyReportsLayout got empty report for corpus: {self.corpus_id}")
-        else:
-            print(f"[DEBUG] FrequencyReportsLayout fetched report for corpus: {self.corpus_id}, keys: {list(self.file_reports.keys())}")
-
-    def _build_aggregated_list(self):
-        """Collect Master first, then others."""
-        self.reports_list = []
-        if not self.file_reports:
-            print(f"[ERROR] No file_reports data to build list for corpus: {self.corpus_id}")
-            return
-            
-        if "Master Report" in self.file_reports:
-            self.reports_list.append({
-                "title": "Master Report",
-                "data": self.file_reports["Master Report"]
-            })
-
-        for k, v in self.file_reports.items():
-            if k != "Master Report":
-                self.reports_list.append({
-                    "title": k,
-                    "data": v
-                })
+                    
+            # Get the reports for this corpus
+            if hasattr(self.controller, 'get_report_for_corpus'):
+                file_reports = self.controller.get_report_for_corpus(self.corpus_id)
+                if file_reports:
+                    print(f"[DEBUG] FrequencyReportsLayout got report with {len(file_reports)} entries")
+                    # Build the aggregated list
+                    self._build_aggregated_list(file_reports)
+                    # Update the table with the first report
+                    if self.aggregated_list:
+                        self.update_table()
+                        # Enable navigation if we have multiple reports
+                        self.prev_button.setEnabled(len(self.aggregated_list) > 1)
+                        self.next_button.setEnabled(len(self.aggregated_list) > 1)
+                        print(f"[DEBUG] FrequencyReportsLayout loaded {len(self.aggregated_list)} reports")
+                    else:
+                        print(f"[ERROR] FrequencyReportsLayout got empty aggregated list")
+                else:
+                    print(f"[ERROR] FrequencyReportsLayout got empty report")
+            else:
+                print(f"[ERROR] Controller has no get_report_for_corpus method")
                 
-        print(f"[DEBUG] Built reports list with {len(self.reports_list)} items for corpus: {self.corpus_id}")
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] FrequencyReportsLayout update_data_source failed: {e}")
+            traceback.print_exc()
 
+    def _build_aggregated_list(self, file_reports):
+        """
+        Build a list of reports from the file_reports dictionary.
+        Put "Master Report" first if it exists.
+        """
+        try:
+            self.aggregated_list = []
+            
+            # Add Master Report first if it exists
+            if "Master Report" in file_reports:
+                self.aggregated_list.append({
+                    "title": "Master Report",
+                    "data": file_reports["Master Report"]["data"]
+                })
+                print(f"[DEBUG] Added Master Report to aggregated list")
+            
+            # Add individual file reports
+            for key, report in file_reports.items():
+                if key != "Master Report":
+                    # For file paths, just show the filename
+                    display_name = key
+                    if '/' in key or '\\' in key:
+                        display_name = os.path.basename(key)
+                        
+                    self.aggregated_list.append({
+                        "title": display_name,
+                        "data": report["data"]
+                    })
+                    
+            print(f"[DEBUG] Built aggregated list with {len(self.aggregated_list)} reports")
+            
+            # Update report counter display
+            self.report_label.setText(f"Report: 1 of {len(self.aggregated_list)}")
+            
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] FrequencyReportsLayout _build_aggregated_list failed: {e}")
+            traceback.print_exc()
+            
     def update_table(self):
-        if not self.reports_list:
-            self.title_label.setText("No Reports Available")
-            self.table_widget.setRowCount(0)
-            return
-
-        total = len(self.reports_list)
-        current_report = self.reports_list[self.current_index]
-        report_title = current_report["title"]
-        short_label = ("Master Report" 
-                    if report_title == "Master Report" 
-                    else os.path.basename(report_title))
-        self.title_label.setText(f"Report {self.current_index + 1} of {total}: {short_label}")
-
-        # Extract word_stats from current_report["data"]["data"]["word_stats"]
-        data_wrapper = current_report["data"]
-        word_stats = []
-        if "data" in data_wrapper and "word_stats" in data_wrapper["data"]:
-            word_stats = data_wrapper["data"]["word_stats"]
-
-        # Update the table row count
-        self.table_widget.setRowCount(len(word_stats))
-
-        # Set the corrected column headers
-        self.table_widget.setColumnCount(5)
-        self.table_widget.setHorizontalHeaderLabels([
-            "Rank", "Word", "Count", "Percentage Frequency", "Z-Score"
-        ])
-
-        # Disable default row numbers (vertical header labels)
-        self.table_widget.verticalHeader().setVisible(False)
-
-        for r_i, row_val in enumerate(word_stats):
-            # row_val = (word, count, pct, z_val, logz)
-            word, count, pct, z_val, _ = row_val  # Skip unnecessary logz column
-            self.table_widget.setItem(r_i, 0, QTableWidgetItem(str(r_i + 1)))  # Rank
-            self.table_widget.setItem(r_i, 1, QTableWidgetItem(str(word)))    # Word
-            self.table_widget.setItem(r_i, 2, QTableWidgetItem(str(count)))   # Count
-            self.table_widget.setItem(r_i, 3, QTableWidgetItem(f"{pct:.2f}")) # Percentage Frequency
-            self.table_widget.setItem(r_i, 4, QTableWidgetItem(f"{z_val:.2f}"))  # Z-Score
-
-        # Auto-stretch columns
-        for c in range(5):
-            self.table_widget.horizontalHeader().setSectionResizeMode(c, QHeaderView.Stretch)
+        """
+        Update the table with the current report data.
+        """
+        try:
+            if not self.aggregated_list:
+                print(f"[ERROR] No aggregated list data to display")
+                return
+                
+            if self.current_index < 0 or self.current_index >= len(self.aggregated_list):
+                print(f"[ERROR] Invalid current_index: {self.current_index}")
+                return
+                
+            # Get the current report
+            report = self.aggregated_list[self.current_index]
+            
+            # Update the report title
+            self.title_label.setText(f"Frequency Reports: {report['title']}")
+            
+            # Update the report counter
+            self.report_label.setText(f"Report: {self.current_index + 1} of {len(self.aggregated_list)}")
+            
+            # Get the report data
+            if 'data' not in report:
+                print(f"[ERROR] No data in report at index {self.current_index}")
+                return
+                
+            report_data = report['data']
+            if 'word_stats' not in report_data:
+                print(f"[ERROR] No word_stats in report data at index {self.current_index}")
+                return
+                
+            word_stats = report_data['word_stats']
+            
+            # Update the stats label
+            total_words = report_data.get('total_word_count', 0)
+            unique_words = report_data.get('unique_word_count', 0)
+            self.stats_label.setText(f"Total Words: {total_words} | Unique Words: {unique_words}")
+            
+            # Sort word stats by count in descending order (if not already sorted)
+            word_stats.sort(key=lambda x: x[1], reverse=True)
+            
+            # Update the table
+            self.table_widget.setRowCount(len(word_stats))
+            
+            for row, stats in enumerate(word_stats):
+                # Each stats entry is (word, count, percentage, z_score, bucket)
+                word, count, percentage, z_score, bucket = stats
+                
+                # Calculate log z-score (avoid log of negative values)
+                log_z_score = 0
+                if z_score > 0:
+                    log_z_score = round(math.log10(z_score), 2)
+                elif z_score < 0:
+                    log_z_score = -round(math.log10(abs(z_score)), 2)
+                
+                # Add rank (row + 1)
+                rank_item = QTableWidgetItem(str(row + 1))
+                rank_item.setTextAlignment(Qt.AlignCenter)
+                self.table_widget.setItem(row, 0, rank_item)
+                
+                # Add word
+                word_item = QTableWidgetItem(word)
+                self.table_widget.setItem(row, 1, word_item)
+                
+                # Add count
+                count_item = QTableWidgetItem(str(count))
+                count_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table_widget.setItem(row, 2, count_item)
+                
+                # Add percentage (format to 2 decimal places)
+                percentage_item = QTableWidgetItem(f"{percentage:.2f}")
+                percentage_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table_widget.setItem(row, 3, percentage_item)
+                
+                # Add z-score (format to 2 decimal places)
+                z_score_item = QTableWidgetItem(f"{z_score:.2f}")
+                z_score_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table_widget.setItem(row, 4, z_score_item)
+                
+                # Add log z-score
+                log_z_item = QTableWidgetItem(f"{log_z_score:.2f}")
+                log_z_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.table_widget.setItem(row, 5, log_z_item)
+                
+                # Apply alternating row colors
+                for col in range(6):
+                    item = self.table_widget.item(row, col)
+                    if item:
+                        # Make read-only
+                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                        # Apply background color based on row
+                        if row % 2:
+                            item.setBackground(QColor(60, 60, 60))  # Dark gray for even rows
+                        else:
+                            item.setBackground(QColor(45, 45, 45))  # Darker gray for odd rows
+            
+            print(f"[DEBUG] Updated table with {len(word_stats)} rows for report {self.current_index + 1}")
+            
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] FrequencyReportsLayout update_table failed: {e}")
+            traceback.print_exc()
 
     def show_previous_report(self):
-        """Show the previous report."""
-        print(f"DEBUG: show_previous_report() in FrequencyReportsLayout for corpus: {self.corpus_id}")
-        if self.reports_list:
-            self.current_index = (self.current_index - 1) % len(self.reports_list)
+        """
+        Show the previous report in the list.
+        """
+        if self.aggregated_list and self.current_index > 0:
+            self.current_index -= 1
             self.update_table()
+            print(f"[DEBUG] Showing previous report, now at index {self.current_index}")
 
     def show_next_report(self):
-        """Show the next report."""
-        print(f"DEBUG: show_next_report() in FrequencyReportsLayout for corpus: {self.corpus_id}")
-        if self.reports_list:
-            self.current_index = (self.current_index + 1) % len(self.reports_list)
+        """
+        Show the next report in the list.
+        """
+        if self.aggregated_list and self.current_index < len(self.aggregated_list) - 1:
+            self.current_index += 1
             self.update_table()
+            print(f"[DEBUG] Showing next report, now at index {self.current_index}")
 
     def refresh(self):
-        """Refresh the data source and update the table."""
-        print(f"DEBUG: Refreshing FrequencyReportsLayout for corpus: {self.corpus_id}")
-        
-        # Update the data source
+        """
+        Refresh the data and update the display.
+        """
+        print(f"[DEBUG] FrequencyReportsLayout refresh called")
+        # First get fresh data
         self.update_data_source()
-            
-        # Rebuild the reports list and update the table
-        self.reports_list = []
-        self._build_aggregated_list()
-        self.current_index = 0  # Reset to first report
-        self.update_table()
+        # Then update the table
+        if self.aggregated_list:
+            self.current_index = 0  # Reset to first report
+            self.update_table()
+            print(f"[DEBUG] FrequencyReportsLayout refreshed with {len(self.aggregated_list)} reports")
+        else:
+            print(f"[ERROR] FrequencyReportsLayout refresh found no reports")
 
 
 class BOScoreBarLayout:

@@ -1,11 +1,14 @@
 # cell_factory.py
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
+from PyQt5.QtCore import pyqtSignal, Qt
 from config.metric_registry import get_metric, METRICS
 
-from visualizations.visualization_registry import get_visualization_class, get_visualization_layout
-
+from visualizations.visualization_registry import (
+    get_visualization_class, 
+    get_visualization_layout,
+    needs_visualization
+)
 
 
 def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mode=None, corpus_id=None):
@@ -25,47 +28,52 @@ def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mod
     metric_data = get_metric(category_key, sub_key, sub_sub_key)
     if not metric_data:
         print(f"[ERROR] No metric data for {category_key}, {sub_key}, {sub_sub_key}")
-        return create_placeholder()
+        return create_placeholder("No metric data available")
 
     vis_type = metric_data.get("visualization_type")
     vis_class = get_visualization_class(vis_type)
     layout_class = get_visualization_layout(vis_type)
+    requires_vis = needs_visualization(vis_type)
 
     try:
-        if vis_class and layout_class:
-            # Create visualization with controller reference and corpus_id
-            vis = vis_class(
-                controller=controller,
-                initial_mode=metric_data.get("initial_mode", initial_mode),
-                corpus_id=corpus_id
-            )
-            print(f"[DEBUG] Created vis_class {vis_type} with corpus_id: {corpus_id}")
-            layout = layout_class(vis)
-            
-            # Add refresh capability to the layout
-            if hasattr(layout, 'refresh_visualization'):
-                layout.refresh_requested = pyqtSignal()
-                layout.refresh_requested.connect(lambda: layout.refresh_visualization())
-            
-            print(f"[DEBUG] Returning layout for {vis_type}")
-            return layout
-        elif layout_class:
-            # For layouts that don't use a visualization class
-            if vis_type == "frequency_reports":
-                # Pass controller and corpus_id instead of file_reports
-                layout = layout_class(controller, corpus_id)
-                print(f"[DEBUG] Created special layout {vis_type} with corpus_id: {corpus_id}")
+        # Create appropriate layout based on whether it needs a visualization
+        if layout_class:
+            if requires_vis and vis_class:
+                # Create visualization with controller reference and corpus_id
+                vis = vis_class(
+                    controller=controller,
+                    initial_mode=metric_data.get("initial_mode", initial_mode),
+                    corpus_id=corpus_id
+                )
+                print(f"[DEBUG] Created vis_class {vis_type} with corpus_id: {corpus_id}")
+                
+                # Create layout with visualization
+                layout = layout_class(vis)
+                if hasattr(layout, 'generate_layout'):
+                    layout = layout.generate_layout()
+                    
+                print(f"[DEBUG] Created layout for {vis_type} with visualization")
+                return layout
             else:
+                # Create layout directly with controller and corpus_id
                 layout = layout_class(controller, corpus_id)
-                print(f"[DEBUG] Created layout {vis_type} with controller")
-            return layout
+                print(f"[DEBUG] Created layout for {vis_type} without visualization")
+                return layout
+        else:
+            print(f"[ERROR] No layout class found for {vis_type}")
+            return create_placeholder(f"No layout available for {vis_type}")
     except Exception as e:
+        import traceback
         print(f"[ERROR] Failed to create cell widget: {e}")
-        return create_placeholder()
+        traceback.print_exc()
+        return create_placeholder(f"Error creating visualization: {str(e)}")
 
 
-def create_placeholder():
+def create_placeholder(message="Visualization unavailable"):
     placeholder = QWidget()
     layout = QVBoxLayout(placeholder)
-    layout.addWidget(QWidget())  # Empty content
+    error_label = QLabel(message)
+    error_label.setAlignment(Qt.AlignCenter)
+    error_label.setStyleSheet("color: #ff5555; font-size: 14px;")
+    layout.addWidget(error_label)
     return placeholder

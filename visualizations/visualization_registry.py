@@ -16,28 +16,31 @@ from visualizations.cell_layout import (
 visualization_registry = {
     "frequency_distribution": {
         "class": FrequencyDistributionVisualization,
-        "layout": lambda vis: FrequencyDistributionLayout(vis).generate_layout(),
+        "layout": FrequencyDistributionLayout,
+        "needs_vis": True,  # Layout needs a visualization instance
     },
     "frequency_reports": {
         "class": None,
-        "layout": lambda file_reports: FrequencyReportsLayout(file_reports),
+        "layout": FrequencyReportsLayout,
+        "needs_vis": False,  # Layout directly uses controller/corpus_id
     },
 
     # BO Score sub-metrics
     "bo_score_bar": {
         "class": BOScoreBarVisualization,
-        "layout": lambda vis: BOScoreBarLayout(vis).generate_layout(),
+        "layout": BOScoreBarLayout,
+        "needs_vis": True,
     },
     "bo_score_line": {
         "class": BOScoreLineVisualization,
-        "layout": lambda vis: BOScoreLineLayout(vis).generate_layout(),
+        "layout": BOScoreLineLayout,
+        "needs_vis": True,
     },
     "bo_score_table": {
         "class": BOScoreTableVisualization,
-        "layout": lambda vis: BOScoreTableLayout(vis).generate_layout(),
+        "layout": BOScoreTableLayout,
+        "needs_vis": True,
     },
-
-   
 }
 
 def get_visualization_class(vis_type):
@@ -51,3 +54,10 @@ def get_visualization_layout(vis_type):
     if not entry or not entry["layout"]:
         return None
     return entry["layout"]
+
+def needs_visualization(vis_type):
+    """Determines if this visualization type needs a visualization instance for its layout."""
+    entry = visualization_registry.get(vis_type)
+    if not entry:
+        return True  # Default to needing visualization
+    return entry.get("needs_vis", True)  # Default to True if not specified
