@@ -12,6 +12,58 @@ from pyqtgraph import PlotWidget, BarGraphItem, mkPen
 import numpy as np
 
 
+# Standardized table styling function for consistent appearance across all tables
+def apply_standard_table_styling(table_widget):
+    """Apply standardized styling to any table widget to ensure visual consistency"""
+    # Set base table styling
+    table_widget.setStyleSheet("""
+        QTableWidget {
+            background-color: #2b2b2b;
+            color: white;
+            gridline-color: #3a3a3a;  /* Softer grid lines */
+            border: none;
+        }
+        QTableWidget::item {
+            padding: 4px;
+            border: none;
+        }
+        QTableWidget::item:selected {
+            background-color: #3d3d3d;
+        }
+        QHeaderView::section {
+            background-color: #3a3a3a;  /* Softer header background */
+            color: white;
+            padding: 4px;
+            border: 1px solid #444;  /* Softer border */
+            font-weight: bold;
+        }
+        QTableCornerButton::section {
+            background-color: #3a3a3a;
+            border: 1px solid #444;
+        }
+    """)
+    
+    # Configure table behavior
+    table_widget.setEditTriggers(QTableWidget.NoEditTriggers)  # Read-only
+    table_widget.setAlternatingRowColors(True)
+    table_widget.setSelectionBehavior(QTableWidget.SelectRows)
+    table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+    table_widget.verticalHeader().setVisible(False)  # Hide row numbers
+    
+    # Use dotted grid lines for a softer appearance
+    table_widget.setShowGrid(True)
+    table_widget.setGridStyle(Qt.DotLine)  # Dotted lines instead of solid
+    
+    # Set row height
+    table_widget.verticalHeader().setDefaultSectionSize(30)  # Match original BO table row height
+    
+    # Set alternating row colors with more noticeable but still gentle contrast
+    palette = table_widget.palette()
+    palette.setColor(QPalette.AlternateBase, QColor(50, 50, 50))  # Lighter for alternating rows
+    palette.setColor(QPalette.Base, QColor(35, 35, 35))          # Darker for main rows
+    table_widget.setPalette(palette)
+
+
 class BaseMetricLayout:
     def __init__(self, vis):
         self.vis = vis
@@ -159,39 +211,40 @@ class FrequencyReportsLayout(QWidget):
         main_layout.setContentsMargins(2, 2, 2, 2)  # Tighter margins
         main_layout.setSpacing(5)  # Reduce spacing
         
-        # Create header with report title
+        # Create header with report title (use exact same title layout as BO table)
         self.title_label = QLabel("Frequency Reports")
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: white; margin-bottom: 2px;")
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: white;")
         main_layout.addWidget(self.title_label)
         
-        # Create navigation with corpus indicator (like BO table has)
-        nav_layout = QHBoxLayout()
-        nav_layout.setContentsMargins(0, 0, 0, 0)
+        # Create top navigation row (like BO table)
+        top_nav = QHBoxLayout()
+        top_nav.setContentsMargins(0, 0, 0, 0)
         
+        # Previous button
         self.prev_button = QPushButton("← Previous")
+        self.prev_button.setFixedWidth(100)
         self.prev_button.setStyleSheet("background-color: #444; color: white; border: none; padding: 4px 8px;")
         self.prev_button.clicked.connect(self.show_previous_report)
         
+        # Navigation counter
         self.report_label = QLabel("Report: 1 of 1")
         self.report_label.setAlignment(Qt.AlignCenter)
         self.report_label.setStyleSheet("color: #aaa; font-size: 12px;")
         
+        # Next button
         self.next_button = QPushButton("Next →")
+        self.next_button.setFixedWidth(100)
         self.next_button.setStyleSheet("background-color: #444; color: white; border: none; padding: 4px 8px;")
         self.next_button.clicked.connect(self.show_next_report)
         
-        # Like BO Score Table, add corpus indicator
-        self.corpus_label = QLabel(f"Corpus: {corpus_id}")
-        self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
-        self.corpus_label.setAlignment(Qt.AlignRight)
+        top_nav.addWidget(self.prev_button)
+        top_nav.addStretch(1)
+        top_nav.addWidget(self.report_label)
+        top_nav.addStretch(1)
+        top_nav.addWidget(self.next_button)
         
-        nav_layout.addWidget(self.prev_button)
-        nav_layout.addWidget(self.report_label, 1)
-        nav_layout.addWidget(self.next_button)
-        nav_layout.addWidget(self.corpus_label)
-        
-        main_layout.addLayout(nav_layout)
+        main_layout.addLayout(top_nav)
         
         # Stats label for total/unique words
         self.stats_label = QLabel()
@@ -206,40 +259,19 @@ class FrequencyReportsLayout(QWidget):
             "Rank", "Word", "Count", "Percentage", "Z-Score", "Log Z-Score"
         ])
         
-        # Style the table like BO Score Table
-        self.table_widget.setStyleSheet("""
-            QTableWidget {
-                background-color: #2b2b2b;
-                color: white;
-                gridline-color: #444;
-                border: none;
-            }
-            QTableWidget::item {
-                padding: 4px;
-            }
-            QTableWidget::item:selected {
-                background-color: #3d3d3d;
-            }
-            QHeaderView::section {
-                background-color: #444;
-                color: white;
-                padding: 4px;
-                border: 1px solid #555;
-            }
-            QTableCornerButton::section {
-                background-color: #444;
-                border: 1px solid #555;
-            }
-        """)
+        # Apply standardized table styling
+        apply_standard_table_styling(self.table_widget)
         
-        # Configure table behavior
-        self.table_widget.setEditTriggers(QTableWidget.NoEditTriggers)  # Read-only
-        self.table_widget.setAlternatingRowColors(True)
-        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # Equal columns
-        self.table_widget.verticalHeader().setVisible(False)  # Hide row numbers
-        self.table_widget.setSortingEnabled(False)  # Disable sorting for now
+        # Match the corpus indicator styling and position from BO Score Table
+        corpus_layout = QHBoxLayout()
+        corpus_layout.setContentsMargins(0, 0, 0, 0)
+        corpus_layout.addStretch(1)
+        self.corpus_label = QLabel(f"Corpus: {corpus_id}")
+        self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        corpus_layout.addWidget(self.corpus_label)
         
         main_layout.addWidget(self.table_widget)
+        main_layout.addLayout(corpus_layout)
         
         # Disable buttons until we have data
         self.prev_button.setEnabled(False)
@@ -394,7 +426,13 @@ class FrequencyReportsLayout(QWidget):
             # Sort word stats by count in descending order (if not already sorted)
             word_stats.sort(key=lambda x: x[1], reverse=True)
             
-            # Update the table
+            # Block signals during updates to improve performance
+            self.table_widget.blockSignals(True)
+            
+            # Clear the table first to avoid any leftover data
+            self.table_widget.clearContents()
+            
+            # Set the number of rows
             self.table_widget.setRowCount(len(word_stats))
             
             for row, stats in enumerate(word_stats):
@@ -413,41 +451,32 @@ class FrequencyReportsLayout(QWidget):
                 rank_item.setTextAlignment(Qt.AlignCenter)
                 self.table_widget.setItem(row, 0, rank_item)
                 
-                # Add word
+                # Add word - left align text for better readability
                 word_item = QTableWidgetItem(word)
                 self.table_widget.setItem(row, 1, word_item)
                 
-                # Add count
+                # Add count - center align all numeric values
                 count_item = QTableWidgetItem(str(count))
-                count_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                count_item.setTextAlignment(Qt.AlignCenter)
                 self.table_widget.setItem(row, 2, count_item)
                 
                 # Add percentage (format to 2 decimal places)
                 percentage_item = QTableWidgetItem(f"{percentage:.2f}")
-                percentage_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                percentage_item.setTextAlignment(Qt.AlignCenter)
                 self.table_widget.setItem(row, 3, percentage_item)
                 
                 # Add z-score (format to 2 decimal places)
                 z_score_item = QTableWidgetItem(f"{z_score:.2f}")
-                z_score_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                z_score_item.setTextAlignment(Qt.AlignCenter)
                 self.table_widget.setItem(row, 4, z_score_item)
                 
                 # Add log z-score
                 log_z_item = QTableWidgetItem(f"{log_z_score:.2f}")
-                log_z_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                log_z_item.setTextAlignment(Qt.AlignCenter)
                 self.table_widget.setItem(row, 5, log_z_item)
-                
-                # Apply alternating row colors
-                for col in range(6):
-                    item = self.table_widget.item(row, col)
-                    if item:
-                        # Make read-only
-                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                        # Apply background color based on row
-                        if row % 2:
-                            item.setBackground(QColor(60, 60, 60))  # Dark gray for even rows
-                        else:
-                            item.setBackground(QColor(45, 45, 45))  # Darker gray for odd rows
+            
+            # Enable signals again
+            self.table_widget.blockSignals(False)
             
             print(f"[DEBUG] Updated table with {len(word_stats)} rows for report {self.current_index + 1}")
             
@@ -834,127 +863,136 @@ class BOScoreLineLayout:
 
 class BOScoreTableLayout:
     """
-    Renders a QTableWidget showing each word + BOn1 score + BOn2 score.
-    Optionally, you can hide BOn2 or combine columns—your choice.
+    Renders BOn1 and BOn2 scores in a table format with sortable columns.
     """
+    
     def __init__(self, vis):
         self.vis = vis  # Instance of BOScoreTableVisualization
-        self.table_widget = None
-
+        self.plot_widget = None
+        
+        print("[DEBUG] BOScoreTableLayout initialized.")
+        
     def generate_layout(self):
-        layout_widget = QWidget()
-        layout = QVBoxLayout(layout_widget)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(10)
-
-        # Header layout with title, corpus indicator and refresh button
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        """Generate the table layout for BOScore visualization."""
+        container = QWidget()
         
-        # Title
-        title_label = QLabel("BO Score Table")
-        title_label.setStyleSheet("color: #fff; font-size:16px;")
-        header_layout.addWidget(title_label)
+        # Set dark background
+        container.setStyleSheet("background-color: #2b2b2b; color: white;")
         
-        # Add corpus indicator if available
-        if hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
-            corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
-            corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
-            header_layout.addWidget(corpus_label)
-            
-        header_layout.addStretch()
+        main_layout = QVBoxLayout(container)
+        main_layout.setContentsMargins(2, 2, 2, 2)
+        main_layout.setSpacing(5)
         
-        # Add refresh button
-        refresh_btn = QToolButton()
-        refresh_btn.setText("⟳")
-        refresh_btn.setToolTip("Refresh visualization")
-        refresh_btn.setStyleSheet("""
-            QToolButton {
-                color: #888888;
-                border: none;
-                font-size: 16px;
-                padding: 4px;
-            }
-            QToolButton:hover {
-                color: #ffffff;
-            }
-        """)
-        refresh_btn.clicked.connect(self.refresh_visualization)
-        header_layout.addWidget(refresh_btn)
+        # Create title label
+        self.title_label = QLabel("BO Score Table")
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(self.title_label)
         
-        layout.addLayout(header_layout)
-
+        # Create corpus indicator
+        corpus_name = self.vis.corpus_id
+        corpus_layout = QHBoxLayout()
+        corpus_layout.setContentsMargins(0, 0, 0, 0)
+        corpus_layout.addStretch(1)
+        self.corpus_label = QLabel(f"Corpus: {corpus_name}")
+        self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        corpus_layout.addWidget(self.corpus_label)
+        
+        # Create the table
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(4)
-        self.table_widget.setHorizontalHeaderLabels(["Rank", "Word", "BOn1", "BOn2"])
-
-        # Apply dark theme for headers
-        header_style = """
-            QHeaderView::section {
-                background-color: #444; 
-                color: white; 
-                font-size: 14px; 
-                font-weight: bold; 
-                border: 1px solid #555;
-            }
-        """
-        self.table_widget.setStyleSheet(header_style)
-        self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table_widget.verticalHeader().setVisible(False)
-        layout.addWidget(self.table_widget)
-
-        # Fill it from vis data
+        self.table_widget.setHorizontalHeaderLabels([
+            "Rank", "Word", "BOn1", "BOn2"
+        ])
+        
+        # Apply standardized table styling
+        apply_standard_table_styling(self.table_widget)
+        
+        # Fill the table with data
         self.fill_table()
-
-        return layout_widget
-
+        
+        # Add the table to the layout
+        main_layout.addWidget(self.table_widget)
+        main_layout.addLayout(corpus_layout)
+        
+        # Add refresh button
+        refresh_button = QPushButton("Refresh")
+        refresh_button.setStyleSheet("background-color: #444; color: white; border: none; padding: 4px 8px;")
+        refresh_button.clicked.connect(self.refresh_visualization)
+        refresh_layout = QHBoxLayout()
+        refresh_layout.addStretch(1)
+        refresh_layout.addWidget(refresh_button)
+        refresh_layout.addStretch(1)
+        main_layout.addLayout(refresh_layout)
+        
+        return container
+        
     def fill_table(self):
+        """Fill the table with BOScore data."""
+        # Get data from the visualization
         bon1_data, bon2_data = self.vis.get_data()
-        if not bon1_data and not bon2_data:
-            self.table_widget.setRowCount(0)  # Clear table if no data
-            return
-
-        # Convert lists -> dict for quick lookup
-        bon1_dict = {w: s for (w, s) in bon1_data}
-        bon2_dict = {w: s for (w, s) in bon2_data}
-
-        # Union of all words, sorted by combined score
-        all_words = sorted(set(bon1_dict.keys()) | set(bon2_dict.keys()),
-                           key=lambda w: bon1_dict.get(w, 0) + bon2_dict.get(w, 0),
-                           reverse=True)
-
-        self.table_widget.setRowCount(len(all_words))
-
-        for i, word in enumerate(all_words):
-            rank = i + 1
-            b1 = bon1_dict.get(word, 0.0)
-            b2 = bon2_dict.get(word, 0.0)
-            formatted_b1 = f"{b1:,.2f}"  # Comma-separated, 2 decimals
-            formatted_b2 = f"{b2:,.2f}"  # Comma-separated, 2 decimals
-
-            # Fill table
-            self.table_widget.setItem(i, 0, QTableWidgetItem(str(rank)))
-            self.table_widget.setItem(i, 1, QTableWidgetItem(word))
-            self.table_widget.setItem(i, 2, QTableWidgetItem(formatted_b1))
-            self.table_widget.setItem(i, 3, QTableWidgetItem(formatted_b2))
-
-            # Style cells for alignment and alternating row colors
-            for j in range(self.table_widget.columnCount()):
-                item = self.table_widget.item(i, j)
-                if item:
-                    item.setTextAlignment(Qt.AlignCenter)
-                    if i % 2 == 0:
-                        item.setBackground(QColor("#333"))  # Darker background for even rows
-                    else:
-                        item.setBackground(QColor("#222"))  # Slightly lighter background for odd rows
-                        
+        
+        # Prepare combined data for display
+        combined_data = {}
+        
+        # Merge BOn1 and BOn2 data
+        for word, score in bon1_data:
+            if word not in combined_data:
+                combined_data[word] = {"bon1": score, "bon2": 0}
+            else:
+                combined_data[word]["bon1"] = score
+                
+        for word, score in bon2_data:
+            if word not in combined_data:
+                combined_data[word] = {"bon1": 0, "bon2": score}
+            else:
+                combined_data[word]["bon2"] = score
+        
+        # Convert to a sortable list (sort by BOn1 score descending)
+        table_data = [(word, data["bon1"], data["bon2"]) 
+                      for word, data in combined_data.items()]
+        table_data.sort(key=lambda x: x[1], reverse=True)
+        
+        # Set table row count
+        self.table_widget.setRowCount(len(table_data))
+        
+        # Block signals during updates to improve performance
+        self.table_widget.blockSignals(True)
+        
+        # Fill the table
+        for row, (word, bon1, bon2) in enumerate(table_data):
+            # Rank column
+            rank_item = QTableWidgetItem(str(row + 1))
+            rank_item.setTextAlignment(Qt.AlignCenter)
+            self.table_widget.setItem(row, 0, rank_item)
+            
+            # Word column - left align text for better readability
+            word_item = QTableWidgetItem(word)
+            self.table_widget.setItem(row, 1, word_item)
+            
+            # BOn1 column - center align all numeric values
+            bon1_item = QTableWidgetItem(f"{bon1:.2f}")
+            bon1_item.setTextAlignment(Qt.AlignCenter)
+            self.table_widget.setItem(row, 2, bon1_item)
+            
+            # BOn2 column - center align all numeric values
+            bon2_item = QTableWidgetItem(f"{bon2:.2f}")
+            bon2_item.setTextAlignment(Qt.AlignCenter)
+            self.table_widget.setItem(row, 3, bon2_item)
+        
+        # Enable signals again
+        self.table_widget.blockSignals(False)
+    
     def refresh_visualization(self):
-        """Refresh visualization data from its anchored corpus."""
-        print(f"[DEBUG] BOScoreTableLayout.refresh_visualization called")
+        """Refresh the visualization with new data."""
+        # Have the visualization update its data
         if hasattr(self.vis, 'update_data'):
             self.vis.update_data()
-            print(f"[DEBUG] Updated BO Score Table data for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
-            self.fill_table()
-        else:
-            print("[WARNING] BOScoreTableVisualization lacks update_data method")
+        
+        # Update corpus name in UI
+        if hasattr(self.vis, 'corpus_id'):
+            self.corpus_label.setText(f"Corpus: {self.vis.corpus_id}")
+            
+        # Refill the table
+        self.fill_table()
 
