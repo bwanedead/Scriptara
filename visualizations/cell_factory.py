@@ -39,13 +39,14 @@ def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mod
         # Create appropriate layout based on whether it needs a visualization
         if layout_class:
             if requires_vis and vis_class:
-                # Create visualization with controller reference and corpus_id
+                # Convert corpus_id to corpus_ids list for visualizations
+                corpus_ids = [corpus_id] if corpus_id else []
                 vis = vis_class(
                     controller=controller,
                     initial_mode=metric_data.get("initial_mode", initial_mode),
-                    corpus_id=corpus_id
+                    corpus_ids=corpus_ids  # Pass as list
                 )
-                print(f"[DEBUG] Created vis_class {vis_type} with corpus_id: {corpus_id}")
+                print(f"[DEBUG] Created vis_class {vis_type} with corpus_ids: {corpus_ids}")
                 
                 # Create layout with visualization
                 layout = layout_class(vis)
@@ -55,7 +56,7 @@ def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mod
                 print(f"[DEBUG] Created layout for {vis_type} with visualization")
                 return layout
             else:
-                # Create layout directly with controller and corpus_id
+                # Layouts like FrequencyReportsLayout still expect corpus_id
                 layout = layout_class(controller, corpus_id)
                 print(f"[DEBUG] Created layout for {vis_type} without visualization")
                 return layout

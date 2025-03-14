@@ -4,7 +4,7 @@ import os
 import math
 import pyqtgraph as pg
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton
+                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton, QDialog, QListWidget
                             )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush, QPalette
@@ -995,4 +995,52 @@ class BOScoreTableLayout:
             
         # Refill the table
         self.fill_table()
+
+
+class CorpusSelector(QDialog):
+    corpus_changed = pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Corpora")
+        
+        # UI Components
+        self.corpus_list = QListWidget()
+        self.corpus_list.setSelectionMode(QListWidget.MultiSelection)
+        
+        self.select_all_btn = QPushButton("Select All")
+        self.clear_all_btn = QPushButton("Clear All")
+        self.apply_btn = QPushButton("Apply")
+        
+        # Layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.corpus_list)
+        layout.addWidget(self.select_all_btn)
+        layout.addWidget(self.clear_all_btn)
+        layout.addWidget(self.apply_btn)
+        self.setLayout(layout)
+        
+        # Connections
+        self.select_all_btn.clicked.connect(lambda: self.corpus_list.selectAll())
+        self.clear_all_btn.clicked.connect(lambda: self.corpus_list.clearSelection())
+        self.apply_btn.clicked.connect(self.apply_selection)
+
+    def open_selector(self, available_corpora):
+        self.corpus_list.clear()
+        for corpus_id in available_corpora:
+            self.corpus_list.addItem(corpus_id)
+        self.corpus_list.setCurrentRow(0)
+        self.setModal(True)
+        self.exec_()
+        return self
+
+    def apply_selection(self):
+        selected_corpora = [self.corpus_list.item(i).text() for i in range(self.corpus_list.count()) 
+                           if self.corpus_list.item(i).isSelected()]
+        self.corpus_changed.emit(selected_corpora)
+        self.accept()
+
+    def get_selected_corpora(self):
+        return [self.corpus_list.item(i).text() for i in range(self.corpus_list.count()) 
+                if self.corpus_list.item(i).isSelected()]
 
