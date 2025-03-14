@@ -675,3 +675,14 @@ class MainController(QObject):
                     file_reports = [k for k in report.keys() if k != "Master Report"]
                     print(f"[DEBUG] Corpus '{corpus_name}' has {len(file_reports)} individual file reports")
 
+    def get_available_corpora(self):
+        """
+        Get a list of all available corpus names.
+        
+        Returns:
+            list: Names of all available corpora
+        """
+        if hasattr(self, 'corpora'):
+            return list(self.corpora.keys())
+        return []
+

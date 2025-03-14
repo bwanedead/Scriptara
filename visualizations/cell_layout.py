@@ -4,7 +4,7 @@ import os
 import math
 import pyqtgraph as pg
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton, QDialog, QListWidget
+                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton, QDialog, QListWidget, QScrollArea, QCheckBox
                             )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush, QPalette
@@ -68,15 +68,16 @@ class BaseMetricLayout:
     def __init__(self, vis):
         self.vis = vis
         self.layout_widget = None
+        self.corpus_label = None  # Add reference to update corpus indicator later
 
     def generate_layout(self):
-        """Generate the base layout with refresh functionality."""
+        """Generate the base layout with refresh and manage corpora functionality."""
         self.layout_widget = QWidget()
         layout = QVBoxLayout(self.layout_widget)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
-        # Header with title and refresh button
+        # Header with title, corpus indicator, refresh, and manage buttons
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -84,14 +85,24 @@ class BaseMetricLayout:
         title_label.setStyleSheet("color: #fff; font-size: 14px; font-weight: bold;")
         header_layout.addWidget(title_label)
         
-        # Add corpus indicator if available
-        if hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
-            corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
-            corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
-            header_layout.addWidget(corpus_label)
+        # Add corpus indicator, updated for multiple corpora
+        if hasattr(self.vis, 'corpus_ids') and self.vis.corpus_ids:
+            if len(self.vis.corpus_ids) == 1:
+                corpus_text = f"Corpus: {self.vis.corpus_ids[0]}"
+            else:
+                corpus_text = f"Corpora: {len(self.vis.corpus_ids)} selected"
+            self.corpus_label = QLabel(corpus_text)
+            self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+            header_layout.addWidget(self.corpus_label)
+        # Fallback to single corpus_id if corpus_ids isn't set yet
+        elif hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
+            self.corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
+            self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+            header_layout.addWidget(self.corpus_label)
         
         header_layout.addStretch()
         
+        # Existing refresh button (unchanged)
         refresh_btn = QToolButton()
         refresh_btn.setText("⟳")
         refresh_btn.setToolTip("Refresh visualization")
@@ -108,6 +119,24 @@ class BaseMetricLayout:
         """)
         refresh_btn.clicked.connect(self.refresh_visualization)
         header_layout.addWidget(refresh_btn)
+        
+        # New "Manage" button for CorpusSelector
+        manage_btn = QToolButton()
+        manage_btn.setText("Corpus Manager")
+        manage_btn.setToolTip("Select Corpora to Display")
+        manage_btn.setStyleSheet("""
+            QToolButton {
+                color: #888888;
+                border: none;
+                font-size: 16px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+            }
+        """)
+        manage_btn.clicked.connect(self.open_corpus_selector)
+        header_layout.addWidget(manage_btn)
         
         layout.addLayout(header_layout)
         
@@ -144,6 +173,45 @@ class BaseMetricLayout:
             self.vis.update_plot()
             
         print(f"[DEBUG] Visualization refreshed for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+
+    def open_corpus_selector(self):
+        """Open the CorpusSelector dialog to manage corpora selection."""
+        if not hasattr(self.vis, 'controller'):
+            print("[ERROR] Visualization has no controller")
+            return
+            
+        # Get available corpora from controller
+        available_corpora = []
+        if hasattr(self.vis.controller, 'get_available_corpora'):
+            available_corpora = self.vis.controller.get_available_corpora()
+        elif hasattr(self.vis.controller, 'corpora'):
+            # Fallback to using corpora dictionary keys
+            available_corpora = list(self.vis.controller.corpora.keys())
+        
+        if not available_corpora:
+            print("[WARNING] No available corpora found")
+            return
+            
+        # Get currently selected corpora
+        current_selection = []
+        if hasattr(self.vis, 'corpus_ids') and self.vis.corpus_ids:
+            current_selection = self.vis.corpus_ids
+        elif hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
+            current_selection = [self.vis.corpus_id]
+            
+        selector = CorpusSelector(self.layout_widget)
+        selector.corpus_changed.connect(self.on_corpus_selection_changed)
+        selector.open_selector(available_corpora, current_selection)
+
+    def on_corpus_selection_changed(self, selected_corpora):
+        """Update the visualization's corpus_ids and refresh the display."""
+        self.vis.set_corpus_ids(selected_corpora)
+        if self.corpus_label:
+            if len(selected_corpora) == 1:
+                self.corpus_label.setText(f"Corpus: {selected_corpora[0]}")
+            else:
+                self.corpus_label.setText(f"Corpora: {len(selected_corpora)} selected")
+        self.refresh_visualization()
 
 
 class FrequencyDistributionLayout(BaseMetricLayout):
@@ -1002,45 +1070,112 @@ class CorpusSelector(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Manage Corpora")
+        self.setWindowTitle("Select Corpora")
+        self.setMinimumWidth(300)
         
         # UI Components
-        self.corpus_list = QListWidget()
-        self.corpus_list.setSelectionMode(QListWidget.MultiSelection)
+        layout = QVBoxLayout()
+        
+        # Instructions label
+        instructions = QLabel("Select corpora to display in visualization:")
+        instructions.setStyleSheet("font-weight: bold;")
+        layout.addWidget(instructions)
+        
+        # Corpus checkboxes container (scrollable)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_content = QWidget()
+        self.checkbox_layout = QVBoxLayout(scroll_content)
+        scroll_area.setWidget(scroll_content)
+        layout.addWidget(scroll_area)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
         
         self.select_all_btn = QPushButton("Select All")
         self.clear_all_btn = QPushButton("Clear All")
         self.apply_btn = QPushButton("Apply")
+        self.apply_btn.setDefault(True)
         
-        # Layout
-        layout = QVBoxLayout()
-        layout.addWidget(self.corpus_list)
-        layout.addWidget(self.select_all_btn)
-        layout.addWidget(self.clear_all_btn)
-        layout.addWidget(self.apply_btn)
+        button_layout.addWidget(self.select_all_btn)
+        button_layout.addWidget(self.clear_all_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.apply_btn)
+        
+        layout.addLayout(button_layout)
         self.setLayout(layout)
         
         # Connections
-        self.select_all_btn.clicked.connect(lambda: self.corpus_list.selectAll())
-        self.clear_all_btn.clicked.connect(lambda: self.corpus_list.clearSelection())
+        self.select_all_btn.clicked.connect(self.select_all_corpora)
+        self.clear_all_btn.clicked.connect(self.clear_all_corpora)
         self.apply_btn.clicked.connect(self.apply_selection)
+        
+        # Store checkboxes
+        self.corpus_checkboxes = []
 
-    def open_selector(self, available_corpora):
-        self.corpus_list.clear()
-        for corpus_id in available_corpora:
-            self.corpus_list.addItem(corpus_id)
-        self.corpus_list.setCurrentRow(0)
-        self.setModal(True)
+    def open_selector(self, available_corpora, current_selection=None):
+        """
+        Open the corpus selector dialog with the given available corpora.
+        
+        Args:
+            available_corpora: List of corpus names
+            current_selection: List of currently selected corpus names
+        """
+        if not available_corpora:
+            print("[WARNING] No corpora available to select")
+            return
+            
+        # Clear existing checkboxes
+        self.corpus_checkboxes.clear()
+        
+        # Remove existing widgets from layout
+        while self.checkbox_layout.count():
+            item = self.checkbox_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        # Create checkboxes for each corpus
+        for corpus_name in available_corpora:
+            checkbox = QCheckBox(corpus_name)
+            
+            # Check if this corpus is currently selected
+            if current_selection and corpus_name in current_selection:
+                checkbox.setChecked(True)
+                
+            self.checkbox_layout.addWidget(checkbox)
+            self.corpus_checkboxes.append(checkbox)
+            
+        # Add a stretch at the end
+        self.checkbox_layout.addStretch()
+        
+        # Show the dialog
         self.exec_()
-        return self
+        
+    def select_all_corpora(self):
+        """Select all corpora in the list."""
+        for checkbox in self.corpus_checkboxes:
+            checkbox.setChecked(True)
+            
+    def clear_all_corpora(self):
+        """Clear all selections."""
+        for checkbox in self.corpus_checkboxes:
+            checkbox.setChecked(False)
 
     def apply_selection(self):
-        selected_corpora = [self.corpus_list.item(i).text() for i in range(self.corpus_list.count()) 
-                           if self.corpus_list.item(i).isSelected()]
+        """Apply the current selection and close the dialog."""
+        selected_corpora = [
+            checkbox.text() for checkbox in self.corpus_checkboxes 
+            if checkbox.isChecked()
+        ]
+        
+        # Emit signal with selected corpora
         self.corpus_changed.emit(selected_corpora)
         self.accept()
 
     def get_selected_corpora(self):
-        return [self.corpus_list.item(i).text() for i in range(self.corpus_list.count()) 
-                if self.corpus_list.item(i).isSelected()]
+        """Return the list of selected corpora."""
+        return [
+            checkbox.text() for checkbox in self.corpus_checkboxes 
+            if checkbox.isChecked()
+        ]
 

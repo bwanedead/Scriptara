@@ -13,7 +13,7 @@ class BaseVisualization:
     All visualization classes should inherit from this class.
     """
     def __init__(self, controller=None, corpus_ids=None, initial_mode=None):
-        self.controller = controller  # Reference to controller to access reports
+        self.controller = controller  # Store controller reference
         self.corpus_ids = corpus_ids if corpus_ids is not None else []  # List of corpus IDs
         self.initial_mode = initial_mode
         self.file_reports = {}  # Persistent cache
