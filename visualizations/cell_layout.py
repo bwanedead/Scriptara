@@ -590,7 +590,7 @@ class FrequencyReportsLayout(QWidget):
 class BOScoreBarLayout:
     """
     Renders a bar chart using pyqtgraph for BOn1 and BOn2 data.
-    Includes toggle buttons to show/hide each dataset.
+    Includes toggle buttons to show/hide each dataset and limit view to top words.
     """
 
     def __init__(self, vis):
@@ -600,6 +600,8 @@ class BOScoreBarLayout:
         # Toggles for visibility
         self.show_bon1 = True  # Default to showing BOn1
         self.show_bon2 = False  # Default to hiding BOn2
+        self.show_top_only = True  # Default to showing only top words
+        self.max_bars = 50  # Default number of bars to show
 
         # Store references to prevent garbage collection
         self.widgets = {}
@@ -621,8 +623,12 @@ class BOScoreBarLayout:
         header_layout.addWidget(title_label)
         
         # Add corpus indicator if available
-        if hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
-            corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
+        if hasattr(self.vis, 'corpus_ids') and self.vis.corpus_ids:
+            if len(self.vis.corpus_ids) == 1:
+                corpus_text = f"Corpus: {self.vis.corpus_ids[0]}"
+            else:
+                corpus_text = f"Corpora: {len(self.vis.corpus_ids)} selected"
+            corpus_label = QLabel(corpus_text)
             corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
             header_layout.addWidget(corpus_label)
             
@@ -651,7 +657,7 @@ class BOScoreBarLayout:
         # Controls for toggling visibility
         controls_layout = QHBoxLayout()
 
-        # Toggle BOn1 button
+        # Toggle BOn1 button - USING ORIGINAL SIGNAL APPROACH
         bon1_btn = QToolButton()
         bon1_btn.setText("Toggle BOn1")
         bon1_btn.setCheckable(True)
@@ -664,7 +670,7 @@ class BOScoreBarLayout:
         self.widgets['bon1_button'] = bon1_btn  # Prevent GC
         print("[DEBUG] Connected bon1_btn clicked signal.")
 
-        # Toggle BOn2 button
+        # Toggle BOn2 button - USING ORIGINAL SIGNAL APPROACH
         bon2_btn = QToolButton()
         bon2_btn.setText("Toggle BOn2")
         bon2_btn.setCheckable(True)
@@ -677,13 +683,25 @@ class BOScoreBarLayout:
         self.widgets['bon2_button'] = bon2_btn  # Prevent GC
         print("[DEBUG] Connected bon2_btn clicked signal.")
 
+        # Toggle for showing top 50 vs all - USING ORIGINAL SIGNAL APPROACH
+        top_only_btn = QToolButton()
+        top_only_btn.setText("Top 50 Only")
+        top_only_btn.setCheckable(True)
+        top_only_btn.setChecked(self.show_top_only)
+        top_only_btn.clicked.connect(
+            lambda: print("[DEBUG] top_only_btn clicked (signal emitted)") or self.on_top_only_toggle_click()
+        )
+        top_only_btn.setFocusPolicy(Qt.ClickFocus)  # Ensure it can receive focus
+        controls_layout.addWidget(top_only_btn)
+        self.widgets['top_only_button'] = top_only_btn  # Prevent GC
+        print("[DEBUG] Connected top_only_btn clicked signal.")
+
         controls_layout.addStretch()
         layout.addLayout(controls_layout)
 
         # Plot widget
         self.plot_widget = PlotWidget()
         self.plot_widget.setBackground('k')
-        self.plot_widget.getPlotItem().setLabel("bottom", "Rank")
         self.plot_widget.getPlotItem().setLabel("left", "BO Score")
         layout.addWidget(self.plot_widget)
 
@@ -694,26 +712,76 @@ class BOScoreBarLayout:
         return layout_widget
 
     def update_plot(self):
-        print(f"[DEBUG] update_plot called. show_bon1={self.show_bon1}, show_bon2={self.show_bon2}")
+        print(f"[DEBUG] update_plot called. show_bon1={self.show_bon1}, show_bon2={self.show_bon2}, show_top_only={self.show_top_only}")
         bon1_data, bon2_data = self.vis.get_data()
         print(f"[DEBUG] BOn1={len(bon1_data)}, BOn2={len(bon2_data)}")
 
+        # Clear the plot
         self.plot_widget.clear()
         plot_item = self.plot_widget.getPlotItem()
-
+        
+        # Determine how many bars to show
+        max_bars = self.max_bars if self.show_top_only else max(len(bon1_data), len(bon2_data))
+        
+        # Set up the bottom axis
+        bottom_axis = plot_item.getAxis('bottom')
+        bottom_axis.setLabel("Rank")
+        
         # Plot BOn1 bars in red if enabled
         if self.show_bon1 and bon1_data:
-            x_vals = [i + 1 for i in range(len(bon1_data))]
-            y_vals = [score for (_, score) in bon1_data]
+            # Limit to max_bars
+            limited_bon1_data = bon1_data[:max_bars]
+            x_vals = [i + 1 for i in range(len(limited_bon1_data))]
+            y_vals = [score for (_, score) in limited_bon1_data]
             bar_item = BarGraphItem(x=x_vals, height=y_vals, width=0.3, brush='r')
             plot_item.addItem(bar_item)
 
         # Plot BOn2 bars in green if enabled
         if self.show_bon2 and bon2_data:
-            x_vals2 = [i + 1 + 0.4 for i in range(len(bon2_data))]
-            y_vals2 = [score for (_, score) in bon2_data]
+            # Limit to max_bars
+            limited_bon2_data = bon2_data[:max_bars]
+            x_vals2 = [i + 1 + 0.4 for i in range(len(limited_bon2_data))]
+            y_vals2 = [score for (_, score) in limited_bon2_data]
             bar_item2 = BarGraphItem(x=x_vals2, height=y_vals2, width=0.3, brush='g')
             plot_item.addItem(bar_item2)
+        
+        # Add word labels if showing top words
+        if self.show_top_only:
+            # Determine which dataset to use for labels
+            label_data = None
+            if self.show_bon1 and bon1_data:
+                label_data = bon1_data[:max_bars]
+            elif self.show_bon2 and bon2_data:
+                label_data = bon2_data[:max_bars]
+            
+            if label_data:
+                # Create simple numeric ticks with words
+                ticks = []
+                for i, (word, _) in enumerate(label_data):
+                    # Only show every few labels to avoid overcrowding
+                    if max_bars <= 20 or i % 3 == 0:
+                        # Truncate long words
+                        display_word = word if len(word) <= 8 else word[:6] + '..'
+                        ticks.append((i + 1, display_word))
+                
+                # Apply the ticks to the bottom axis
+                bottom_axis.setTicks([ticks])
+                
+                # Make the labels horizontal but small
+                bottom_axis.setStyle(tickFont=pg.QtGui.QFont('Arial', 8))
+                bottom_axis.setRotation(0)  # Horizontal text
+                
+                # Set the x-axis range to show all bars with some padding
+                plot_item.setXRange(0.5, max_bars + 0.5)
+        else:
+            # For "show all" mode, use default numeric ticks
+            bottom_axis.setTicks(None)
+            
+            # Set the x-axis range to show all bars with some padding
+            plot_item.setXRange(0.5, max_bars + 0.5)
+        
+        # Auto-scale y-axis
+        plot_item.enableAutoRange(axis='y')
 
     def on_bon1_toggle_click(self):
         print("[DEBUG] on_bon1_toggle_click called")
@@ -726,13 +794,19 @@ class BOScoreBarLayout:
         self.show_bon2 = not self.show_bon2
         self.update_plot()
         print(f"[DEBUG] on_bon2_toggle_click -> show_bon2: {self.show_bon2}")
+    
+    def on_top_only_toggle_click(self):
+        print("[DEBUG] on_top_only_toggle_click called")
+        self.show_top_only = not self.show_top_only
+        self.update_plot()
+        print(f"[DEBUG] on_top_only_toggle_click -> show_top_only: {self.show_top_only}")
         
     def refresh_visualization(self):
         """Refresh visualization data from its anchored corpus."""
         print(f"[DEBUG] BOScoreBarLayout.refresh_visualization called")
         if hasattr(self.vis, 'update_data'):
             self.vis.update_data()
-            print(f"[DEBUG] Updated BO Score Bar data for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+            print(f"[DEBUG] Updated BO Score Bar data for corpus: {getattr(self.vis, 'corpus_ids', 'unknown')}")
             self.update_plot()
         else:
             print("[WARNING] BOScoreBarVisualization lacks update_data method")
