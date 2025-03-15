@@ -958,11 +958,16 @@ class BOScoreTableLayout:
         main_layout.addWidget(self.title_label)
         
         # Create corpus indicator
-        corpus_name = self.vis.corpus_id
+        corpus_text = ""
+        if hasattr(self.vis, 'corpus_ids') and self.vis.corpus_ids:
+            if len(self.vis.corpus_ids) == 1:
+                corpus_text = f"Corpus: {self.vis.corpus_ids[0]}"
+            else:
+                corpus_text = f"Corpora: {len(self.vis.corpus_ids)} selected"
         corpus_layout = QHBoxLayout()
         corpus_layout.setContentsMargins(0, 0, 0, 0)
         corpus_layout.addStretch(1)
-        self.corpus_label = QLabel(f"Corpus: {corpus_name}")
+        self.corpus_label = QLabel(corpus_text)
         self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
         corpus_layout.addWidget(self.corpus_label)
         
@@ -1058,8 +1063,13 @@ class BOScoreTableLayout:
             self.vis.update_data()
         
         # Update corpus name in UI
-        if hasattr(self.vis, 'corpus_id'):
-            self.corpus_label.setText(f"Corpus: {self.vis.corpus_id}")
+        corpus_text = ""
+        if hasattr(self.vis, 'corpus_ids') and self.vis.corpus_ids:
+            if len(self.vis.corpus_ids) == 1:
+                corpus_text = f"Corpus: {self.vis.corpus_ids[0]}"
+            else:
+                corpus_text = f"Corpora: {len(self.vis.corpus_ids)} selected"
+        self.corpus_label.setText(corpus_text)
             
         # Refill the table
         self.fill_table()
