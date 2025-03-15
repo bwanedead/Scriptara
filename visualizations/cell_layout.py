@@ -603,6 +603,11 @@ class BOScoreBarLayout:
         self.show_top_only = True  # Default to showing only top words
         self.max_bars = 50  # Default number of bars to show
 
+        # Store data for dynamic labels
+        self.current_label_data = None
+        self.current_max_bars = 0
+        self.current_view_range = (0, 50)  # Default view range
+
         # Store references to prevent garbage collection
         self.widgets = {}
         print("[DEBUG] BOScoreBarLayout initialized.")
@@ -703,7 +708,18 @@ class BOScoreBarLayout:
         self.plot_widget = PlotWidget()
         self.plot_widget.setBackground('k')
         self.plot_widget.getPlotItem().setLabel("left", "BO Score")
+        
+        # Connect to the view range changed signal to update labels on zoom
+        view_box = self.plot_widget.getPlotItem().getViewBox()
+        view_box.sigRangeChanged.connect(self.on_view_range_changed)
+        
         layout.addWidget(self.plot_widget)
+
+        # Add a hint about zooming
+        zoom_hint = QLabel("Tip: Zoom in to see more word labels")
+        zoom_hint.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        zoom_hint.setAlignment(Qt.AlignCenter)
+        layout.addWidget(zoom_hint)
 
         # Draw bars initially
         self.update_plot()
@@ -722,6 +738,7 @@ class BOScoreBarLayout:
         
         # Determine how many bars to show
         max_bars = self.max_bars if self.show_top_only else max(len(bon1_data), len(bon2_data))
+        self.current_max_bars = max_bars
         
         # Set up the bottom axis
         bottom_axis = plot_item.getAxis('bottom')
@@ -745,43 +762,97 @@ class BOScoreBarLayout:
             bar_item2 = BarGraphItem(x=x_vals2, height=y_vals2, width=0.3, brush='g')
             plot_item.addItem(bar_item2)
         
-        # Add word labels if showing top words
-        if self.show_top_only:
-            # Determine which dataset to use for labels
-            label_data = None
-            if self.show_bon1 and bon1_data:
-                label_data = bon1_data[:max_bars]
-            elif self.show_bon2 and bon2_data:
-                label_data = bon2_data[:max_bars]
-            
-            if label_data:
-                # Create simple numeric ticks with words
-                ticks = []
-                for i, (word, _) in enumerate(label_data):
-                    # Only show every few labels to avoid overcrowding
-                    if max_bars <= 20 or i % 3 == 0:
-                        # Truncate long words
-                        display_word = word if len(word) <= 8 else word[:6] + '..'
-                        ticks.append((i + 1, display_word))
-                
-                # Apply the ticks to the bottom axis
-                bottom_axis.setTicks([ticks])
-                
-                # Make the labels horizontal but small
-                bottom_axis.setStyle(tickFont=pg.QtGui.QFont('Arial', 8))
-                bottom_axis.setRotation(0)  # Horizontal text
-                
-                # Set the x-axis range to show all bars with some padding
-                plot_item.setXRange(0.5, max_bars + 0.5)
+        # Store label data for dynamic updates - ALWAYS STORE LABEL DATA
+        # Determine which dataset to use for labels
+        if self.show_bon1 and bon1_data:
+            self.current_label_data = bon1_data[:max_bars]
+        elif self.show_bon2 and bon2_data:
+            self.current_label_data = bon2_data[:max_bars]
         else:
-            # For "show all" mode, use default numeric ticks
-            bottom_axis.setTicks(None)
+            self.current_label_data = None
             
-            # Set the x-axis range to show all bars with some padding
-            plot_item.setXRange(0.5, max_bars + 0.5)
+        # Set the x-axis range to show all bars with some padding
+        plot_item.setXRange(0.5, max_bars + 0.5)
+        
+        # Update labels based on current view
+        self.update_labels()
         
         # Auto-scale y-axis
         plot_item.enableAutoRange(axis='y')
+
+    def update_labels(self):
+        """Update the word labels based on the current view range."""
+        if not self.current_label_data:
+            # No labels if no data
+            bottom_axis = self.plot_widget.getPlotItem().getAxis('bottom')
+            bottom_axis.setTicks(None)  # Use default numeric ticks
+            return
+            
+        # Get the current view range
+        view_box = self.plot_widget.getPlotItem().getViewBox()
+        view_range = view_box.viewRange()
+        x_min, x_max = view_range[0]
+        self.current_view_range = (x_min, x_max)
+        
+        # Calculate visible range
+        visible_width = x_max - x_min
+        
+        # Determine label density based on zoom level and mode
+        # More zoomed in = more labels
+        # In "All Bars" mode, be more conservative with labels to avoid overcrowding
+        if self.show_top_only:
+            # Top 50 mode - more aggressive labeling
+            if visible_width <= 25:
+                step = 1  # Show every label
+            elif visible_width <= 35:
+                step = 2  # Show every other label
+            elif visible_width <= 45:
+                step = 3  # Show every third label
+            else:
+                step = 4  # Show every fourth label
+        else:
+            # All bars mode - more conservative labeling
+            if visible_width <= 15:
+                step = 1  # Show every label
+            elif visible_width <= 30:
+                step = 2  # Show every other label
+            elif visible_width <= 60:
+                step = 5  # Show every fifth label
+            elif visible_width <= 100:
+                step = 10  # Show every tenth label
+            else:
+                step = 20  # Show every twentieth label
+            
+        print(f"[DEBUG] View range: {x_min:.1f} to {x_max:.1f}, width: {visible_width:.1f}, step: {step}")
+        
+        # Create ticks for visible range
+        ticks = []
+        for i, (word, _) in enumerate(self.current_label_data):
+            pos = i + 1  # Position is 1-based
+            
+            # Only include if in visible range and matches step
+            if x_min - 1 <= pos <= x_max + 1 and (i % step == 0):
+                # Truncate long words
+                display_word = word if len(word) <= 8 else word[:6] + '..'
+                ticks.append((pos, display_word))
+        
+        # Apply the ticks to the bottom axis
+        bottom_axis = self.plot_widget.getPlotItem().getAxis('bottom')
+        bottom_axis.setTicks([ticks])
+        
+        # Make the labels horizontal but small
+        bottom_axis.setStyle(tickFont=pg.QtGui.QFont('Arial', 8))
+        bottom_axis.setRotation(0)  # Horizontal text
+
+    def on_view_range_changed(self, view_box, range_data):
+        """Called when the user zooms or pans the plot."""
+        x_min, x_max = range_data[0]
+        
+        # Only update if the range has changed significantly
+        old_min, old_max = self.current_view_range
+        if abs(x_min - old_min) > 0.1 or abs(x_max - old_max) > 0.1:
+            print(f"[DEBUG] View range changed: {x_min:.1f} to {x_max:.1f}")
+            self.update_labels()
 
     def on_bon1_toggle_click(self):
         print("[DEBUG] on_bon1_toggle_click called")
