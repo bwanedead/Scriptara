@@ -284,18 +284,21 @@ class BaseMetricLayout:
         if not plot_items:
             print("[WARNING] No plot settings available to display")
             return
-            
-        # Toggle sidebar visibility based on current state
-        if self.settings_sidebar.is_visible:
-            # Hide the sidebar
+        
+        # Toggle sidebar and update button state
+        if self.settings_sidebar.is_visible and not self.settings_sidebar.is_animating:
+            # If sidebar is visible and not in the middle of animating, close it
             self.settings_sidebar.close_sidebar()
             self.sidebar_button.setText("◀")
             self.sidebar_button.setToolTip("Open settings menu")
-        else:
-            # Show the sidebar with updated settings
+        elif not self.settings_sidebar.is_visible and not self.settings_sidebar.is_animating:
+            # If sidebar is hidden and not animating, show it
             self.settings_sidebar.show_settings(self.vis, plot_items, current_settings)
             self.sidebar_button.setText("▶")
             self.sidebar_button.setToolTip("Close settings menu")
+        else:
+            # If sidebar is in the middle of an animation, don't do anything
+            print("[DEBUG] Sidebar is currently animating, ignoring toggle request")
 
     def on_settings_changed(self, settings):
         if hasattr(self.vis, 'set_visibility_settings'):
@@ -1557,18 +1560,31 @@ class SettingsSidebar(QWidget):
         
         # Set initial state
         self.is_visible = False
-        self.animation = QPropertyAnimation(self, b"pos")
-        self.animation.setDuration(200)
-        self.hide()
-        print("[DEBUG] SettingsSidebar initialized with parent:", parent)
+        self.is_animating = False  # Track animation state to prevent overlapping animations
         
         # For organized corpus data
         self.corpus_sections = {}  # Store sections by corpus
         self.color_buttons = {}    # Store color buttons by corpus
+        
+        # Make sure we're hidden initially
+        self.hide()
+        print("[DEBUG] SettingsSidebar initialized with parent:", parent)
 
     def show_settings(self, target, plot_items=None, current_settings=None):
         """Show the sidebar with organized plot items and settings."""
-        print("[DEBUG] show_settings called with items count:", len(plot_items) if plot_items else 0)
+        print(f"[DEBUG] show_settings called, is_visible: {self.is_visible}, is_animating: {self.is_animating}")
+        
+        # If already animating, don't start another animation
+        if self.is_animating:
+            print("[DEBUG] Animation already in progress, ignoring show_settings call")
+            return
+            
+        # If already visible, just close it
+        if self.is_visible:
+            self.close_sidebar()
+            return
+            
+        # Update target reference
         self.target = target
         
         # Default values
@@ -1588,22 +1604,37 @@ class SettingsSidebar(QWidget):
             # Create a section for this corpus
             self._add_corpus_section(corpus_name, items, current_settings)
         
-        # Show with animation if not already visible
-        if not self.is_visible:
-            # Make sure we're in position for the animation to work correctly
-            self.raise_()  # Bring to front
-            self.move(-self.width(), 0)
-            self.show()
-            
-            # Set up animation
-            self.animation.setStartValue(self.pos())
-            self.animation.setEndValue(QPoint(0, 0))
-            self.animation.start()
-            self.is_visible = True
-            print("[DEBUG] Sidebar animation started")
-        else:
-            # Already visible, just close
-            self.close_sidebar()
+        # Make sure we're visible and positioned correctly before animation
+        self.raise_()  # Bring to front
+        self.move(-self.width(), 0)  # Start position off-screen
+        self.show()
+        
+        # Create a fresh animation for opening
+        self.open_animation = QPropertyAnimation(self, b"pos")
+        self.open_animation.setDuration(200)
+        self.open_animation.setStartValue(self.pos())
+        self.open_animation.setEndValue(QPoint(0, 0))
+        
+        # Connect signals
+        self.open_animation.finished.connect(self._on_open_finished)
+        self.is_animating = True
+        
+        # Start animation
+        self.open_animation.start()
+        print("[DEBUG] Sidebar open animation started")
+    
+    def _on_open_finished(self):
+        """Handle completion of open animation."""
+        self.is_animating = False
+        self.is_visible = True
+        print("[DEBUG] Sidebar open animation finished")
+    
+    def _on_close_finished(self):
+        """Handle completion of close animation."""
+        self.hide()
+        self.is_animating = False
+        self.is_visible = False
+        print("[DEBUG] Sidebar close animation finished")
     
     def _clear_content(self):
         """Clear all widgets from the content layout."""
@@ -1786,24 +1817,25 @@ class SettingsSidebar(QWidget):
     
     def close_sidebar(self):
         """Close the sidebar with animation."""
-        print("[DEBUG] close_sidebar called, is_visible:", self.is_visible)
-        if self.is_visible:
-            # Disconnect any previous connections
-            try:
-                self.animation.finished.disconnect()
-            except Exception:
-                pass
-                
-            # Set up close animation
-            self.animation.setStartValue(self.pos())
-            self.animation.setEndValue(QPoint(-self.width(), 0))
-            
-            # Connect to hide when finished
-            self.animation.finished.connect(self.hide)
-            
-            # Start animation
-            self.animation.start()
-            self.is_visible = False
-            print("[DEBUG] Sidebar close animation started")
+        print(f"[DEBUG] close_sidebar called, is_visible: {self.is_visible}, is_animating: {self.is_animating}")
+        
+        # If already animating or not visible, don't do anything
+        if self.is_animating or not self.is_visible:
+            print("[DEBUG] Animation in progress or sidebar not visible, ignoring close_sidebar call")
+            return
+        
+        # Create a fresh animation for closing
+        self.close_animation = QPropertyAnimation(self, b"pos")
+        self.close_animation.setDuration(200)
+        self.close_animation.setStartValue(self.pos())
+        self.close_animation.setEndValue(QPoint(-self.width(), 0))
+        
+        # Connect signals
+        self.close_animation.finished.connect(self._on_close_finished)
+        self.is_animating = True
+        
+        # Start animation
+        self.close_animation.start()
+        print("[DEBUG] Sidebar close animation started")
 
 
