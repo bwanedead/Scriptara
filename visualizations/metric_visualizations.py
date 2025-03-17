@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt, QObject, pyqtSignal
 import logging
 import numpy as np
 from analysis.advanced_analysis import compute_bo_scores
+from PyQt5.QtGui import QColor
 
 class BaseVisualization(QWidget):
     visibility_updated = pyqtSignal(dict)
@@ -231,6 +232,12 @@ class FrequencyDistributionVisualization(BaseVisualization):
             for corpus_id in corpus_ids:
                 # Enable the corpus curves by default, but leave analytics off
                 self.visibility_settings[corpus_id] = True
+        
+        # New color mapping for corpus coloring
+        self.corpus_colors = {}  # {corpus_id: QColor}
+        
+        # Track color grouping state for each corpus
+        self.color_grouping_enabled = {}  # {corpus_id: bool}
                 
         self.mode_map = {'nominal': 1, 'percentage': 2, 'z_score': 3}
         pg.setConfigOptions(antialias=True, useOpenGL=True)
@@ -260,8 +267,30 @@ class FrequencyDistributionVisualization(BaseVisualization):
 
     def set_visibility_settings(self, settings):
         print(f"[DEBUG] Setting visibility_settings: {settings}")
-        self.visibility_settings.update(settings)
+        # Process regular visibility settings
+        for key, value in settings.items():
+            # Special handling for color settings
+            if key.startswith('_color_'):
+                corpus_name = key[7:]  # Remove '_color_' prefix
+                self.set_corpus_color(corpus_name, value)
+            # Special handling for color grouping toggle
+            elif key.startswith('_group_'):
+                corpus_name = key[7:]  # Remove '_group_' prefix
+                self.color_grouping_enabled[corpus_name] = value
+                print(f"[DEBUG] Setting color grouping for {corpus_name} to {value}")
+            else:
+                self.visibility_settings[key] = value
         self.update_plot()
+
+    def set_corpus_color(self, corpus_name, color):
+        """Set the color for all curves in a corpus."""
+        # If color is a string (like "#RRGGBB"), convert to QColor
+        if isinstance(color, str):
+            color = QColor(color)
+            
+        print(f"[DEBUG] Setting corpus color for {corpus_name} to {color.name()}")
+        self.corpus_colors[corpus_name] = color
+        # No need to update plot here, set_visibility_settings will do it
 
     def set_mode(self, mode):
         if mode in self.mode_map:
@@ -331,25 +360,82 @@ class FrequencyDistributionVisualization(BaseVisualization):
         if not data:
             print(f"[DEBUG] No data to plot")
             return
-        colors = [(102, 153, 255), (102, 255, 178), (255, 204, 102), (255, 102, 178), (178, 102, 255), (102, 255, 255), (255, 178, 102)]
+            
+        # Default colors to use when corpus color grouping is not active
+        default_colors = [(102, 153, 255), (102, 255, 178), (255, 204, 102), 
+                         (255, 102, 178), (178, 102, 255), (102, 255, 255), (255, 178, 102)]
         color_index = 0
+        
+        # Track file count for each corpus for assigning unique colors
+        corpus_file_count = {}
+        
+        # First determine corpus for each dataset for color grouping
         for name, data_item in data.items():
+            corpus_name = name.split(":")[0] if ":" in name else name.split(" (")[0] if " (" in name else name
+            
+            # Count files per corpus for color index tracking
+            if corpus_name not in corpus_file_count:
+                corpus_file_count[corpus_name] = 0
+            
+            # Special handling for different item types
             if name.endswith("(Band)"):
                 ranks, min_vals, max_vals = data_item
-                plot_item.plot(ranks, min_vals, pen='gray', name=f"{name} Min")
-                plot_item.plot(ranks, max_vals, pen='gray', name=f"{name} Max")
-                fill = pg.FillBetweenItem(plot_item.listDataItems()[-2], plot_item.listDataItems()[-1], brush=(100, 100, 100, 50))
+                
+                # Use corpus color if grouping is enabled, otherwise use gray
+                if corpus_name in self.color_grouping_enabled and self.color_grouping_enabled[corpus_name] and corpus_name in self.corpus_colors:
+                    color = self.corpus_colors[corpus_name]
+                    # Make a more transparent version for the fill
+                    fill_color = QColor(color)
+                    fill_color.setAlpha(50)  # Set transparency
+                    pen_color = f"rgb({color.red()}, {color.green()}, {color.blue()})"
+                else:
+                    pen_color = 'gray'
+                    fill_color = QColor(100, 100, 100, 50)
+                
+                # Plot min and max lines
+                min_curve = plot_item.plot(ranks, min_vals, pen=pen_color, name=f"{name} Min")
+                max_curve = plot_item.plot(ranks, max_vals, pen=pen_color, name=f"{name} Max")
+                
+                # Add fill between
+                fill = pg.FillBetweenItem(min_curve, max_curve, brush=fill_color)
                 plot_item.addItem(fill)
             else:
                 ranks, vals = data_item
+                
+                # Choose pen color and style based on item type
                 if name.endswith("(Average)"):
-                    pen = pg.mkPen(color='w', width=2, style=Qt.DashLine)
+                    if corpus_name in self.color_grouping_enabled and self.color_grouping_enabled[corpus_name] and corpus_name in self.corpus_colors:
+                        color = self.corpus_colors[corpus_name]
+                        pen = pg.mkPen(color=color, width=2, style=Qt.DashLine)
+                    else:
+                        pen = pg.mkPen(color='w', width=2, style=Qt.DashLine)
                 elif name.endswith("(Best Fit)"):
-                    pen = pg.mkPen(color='y', width=2)
+                    if corpus_name in self.color_grouping_enabled and self.color_grouping_enabled[corpus_name] and corpus_name in self.corpus_colors:
+                        color = self.corpus_colors[corpus_name]
+                        pen = pg.mkPen(color=color, width=2)
+                    else:
+                        pen = pg.mkPen(color='y', width=2)
                 else:
-                    pen = pg.mkPen(color=colors[color_index % len(colors)], width=1.5)
-                    color_index += 1
+                    # For regular file curves
+                    if corpus_name in self.color_grouping_enabled and self.color_grouping_enabled[corpus_name] and corpus_name in self.corpus_colors:
+                        # When grouping is enabled, use the corpus color for all files
+                        color = self.corpus_colors[corpus_name]
+                        pen = pg.mkPen(color=color, width=1.5)
+                    else:
+                        # When grouping is disabled, use unique colors for each file
+                        corpus_file_count[corpus_name] += 1
+                        color_idx = (color_index + corpus_file_count[corpus_name] - 1) % len(default_colors)
+                        color = default_colors[color_idx]
+                        pen = pg.mkPen(color=color, width=1.5)
+                
+                # Plot the curve
                 plot_item.plot(ranks, vals, pen=pen, name=name)
+            
+            # Increment color index for the next corpus
+            if corpus_name not in corpus_file_count:
+                color_index += 1
+        
+        # Update plot display
         plot_item.enableAutoRange()
         plot_item.autoRange()
         self.plot_widget.update()

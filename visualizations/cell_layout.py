@@ -1565,6 +1565,8 @@ class SettingsSidebar(QWidget):
         # For organized corpus data
         self.corpus_sections = {}  # Store sections by corpus
         self.color_buttons = {}    # Store color buttons by corpus
+        self.corpus_colors = {}    # Store selected colors by corpus
+        self.color_grouping = {}   # Store color grouping state by corpus
         
         # Make sure we're hidden initially
         self.hide()
@@ -1644,7 +1646,7 @@ class SettingsSidebar(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         
-        # Reset tracking dictionaries
+        # Keep color and grouping settings but clear section references
         self.corpus_sections = {}
         self.color_buttons = {}
     
@@ -1691,18 +1693,30 @@ class SettingsSidebar(QWidget):
         section_layout.setContentsMargins(8, 8, 8, 8)
         section_layout.setSpacing(4)
         
-        # Create header with corpus name and color selector
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Toggle button
-        toggle_btn = QPushButton("▼")  # Down arrow for expand
-        toggle_btn.setFixedWidth(20)
-        toggle_btn.setStyleSheet("""
-            QPushButton {
+        # Create clickable header frame
+        header_frame = QFrame()
+        header_frame.setCursor(Qt.PointingHandCursor)
+        header_frame.setStyleSheet("""
+            QFrame {
                 background-color: transparent;
                 border: none;
+            }
+            QFrame:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+                border-radius: 3px;
+            }
+        """)
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(4, 4, 4, 4)
+        header_layout.setSpacing(6)
+        
+        # Toggle button (only visual)
+        toggle_indicator = QLabel("▼")  # Down arrow for expand
+        toggle_indicator.setStyleSheet("""
+            QLabel {
                 font-weight: bold;
+                color: #aaa;
+                min-width: 15px;
             }
         """)
         
@@ -1710,36 +1724,78 @@ class SettingsSidebar(QWidget):
         corpus_label = QLabel(corpus_name)
         corpus_label.setStyleSheet("font-weight: bold; color: white;")
         
+        # Store the initial color or use previously selected color
+        color = self.corpus_colors.get(corpus_name, QColor("#6699ff"))  # Default blue
+        
         # Color button
         color_btn = QPushButton()
         color_btn.setFixedSize(16, 16)
         color_btn.setCursor(Qt.PointingHandCursor)
         color_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #6699ff;  /* Default blue */
+                background-color: {color.name()};
                 border: 1px solid #888;
                 border-radius: 8px;
             }}
         """)
         color_btn.setToolTip("Change color for this corpus")
         
-        # Store color button for later access
-        self.color_buttons[corpus_name] = color_btn
+        # Add color picker to button
+        color_btn.clicked.connect(lambda checked, cn=corpus_name: self._open_color_picker(cn))
         
         # Add widgets to header
-        header_layout.addWidget(toggle_btn)
+        header_layout.addWidget(toggle_indicator)
         header_layout.addWidget(corpus_label)
         header_layout.addStretch()
         header_layout.addWidget(color_btn)
         
         # Add header to section
-        section_layout.addLayout(header_layout)
+        section_layout.addWidget(header_frame)
         
         # Create container for items (for collapsible effect)
         items_container = QWidget()
         items_layout = QVBoxLayout(items_container)
         items_layout.setContentsMargins(5, 5, 5, 0)
         items_layout.setSpacing(4)
+        
+        # Add group toggle switch as first item in the list
+        group_toggle = QCheckBox("Group colors for all items")
+        group_toggle.setStyleSheet("""
+            QCheckBox {
+                color: #ddd;
+                font-size: 12px;
+                font-style: italic;
+                padding-left: 15px;
+                border-bottom: 1px solid #444;
+                padding-bottom: 5px;
+                margin-bottom: 5px;
+            }
+            QCheckBox::indicator {
+                width: 14px;
+                height: 14px;
+                border: 1px solid #777;
+                border-radius: 2px;
+                background-color: #444;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #6699ff;
+                border: 1px solid #6699ff;
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #999;
+            }
+        """)
+        # Set initial state based on previous setting or current setting
+        initial_group_state = self.color_grouping.get(corpus_name, False)
+        # Check if we have a current setting stored with _group_ prefix
+        for key, value in current_settings.items():
+            if key == f"_group_{corpus_name}":
+                initial_group_state = value
+                break
+                
+        group_toggle.setChecked(initial_group_state)
+        group_toggle.stateChanged.connect(lambda state, cn=corpus_name: self._toggle_color_grouping(cn, state))
+        items_layout.addWidget(group_toggle)
         
         # Add items with modern checkboxes
         for item_name, item_type in items:
@@ -1776,42 +1832,118 @@ class SettingsSidebar(QWidget):
         # Add items container to section
         section_layout.addWidget(items_container)
         
-        # Set up toggle behavior
-        toggle_btn.clicked.connect(lambda checked, w=items_container, b=toggle_btn: self._toggle_section(w, b))
+        # Set up toggle behavior for entire header
+        header_frame.mousePressEvent = lambda event, w=items_container, l=toggle_indicator: self._toggle_section(w, l)
         
         # Add complete section to content layout
         self.content_layout.addWidget(section_frame)
         
-        # Store section in our tracking dictionary
+        # Store in our tracking dictionaries
+        self.color_buttons[corpus_name] = color_btn
         self.corpus_sections[corpus_name] = {
             'frame': section_frame,
             'container': items_container,
-            'toggle_btn': toggle_btn
+            'toggle_indicator': toggle_indicator,
+            'header': header_frame,
+            'items': items
         }
     
-    def _toggle_section(self, container, button):
+    def _toggle_section(self, container, label):
         """Toggle visibility of a section's items."""
         if container.isVisible():
             container.hide()
-            button.setText("►")  # Right arrow for collapsed
+            label.setText("►")  # Right arrow for collapsed
         else:
             container.show()
-            button.setText("▼")  # Down arrow for expanded
+            label.setText("▼")  # Down arrow for expanded
+    
+    def _open_color_picker(self, corpus_name):
+        """Open a color picker dialog for the specified corpus."""
+        from PyQt5.QtWidgets import QColorDialog
+        
+        # Get the current color
+        current_color = self.corpus_colors.get(corpus_name, QColor("#6699ff"))
+        
+        # Open color dialog
+        color = QColorDialog.getColor(current_color, self, f"Select Color for {corpus_name}")
+        
+        # If a valid color was selected
+        if color.isValid():
+            # Store the color
+            self.corpus_colors[corpus_name] = color
+            
+            # Update the button color
+            if corpus_name in self.color_buttons:
+                self.color_buttons[corpus_name].setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {color.name()};
+                        border: 1px solid #888;
+                        border-radius: 8px;
+                    }}
+                    QPushButton:hover {{
+                        border: 1px solid white;
+                    }}
+                """)
+            
+            # Apply color grouping if enabled
+            if self.color_grouping.get(corpus_name, False):
+                self._apply_corpus_color(corpus_name, color)
+    
+    def _toggle_color_grouping(self, corpus_name, state):
+        """Toggle whether all curves in this corpus should use the same color."""
+        # Store the state
+        is_grouped = state == Qt.Checked
+        self.color_grouping[corpus_name] = is_grouped
+        print(f"[DEBUG] Color grouping for {corpus_name} toggled to {is_grouped}")
+        
+        # Apply grouping if enabled
+        if is_grouped:
+            color = self.corpus_colors.get(corpus_name, QColor("#6699ff"))
+            self._apply_corpus_color(corpus_name, color)
+        
+        # Always update visibility settings to ensure proper processing of grouping state
+        self._update_visibility_settings()
+    
+    def _apply_corpus_color(self, corpus_name, color):
+        """Apply the selected color to all curves in the corpus."""
+        # Store the color setting and notify the visualization
+        if hasattr(self.target, 'set_corpus_color'):
+            self.target.set_corpus_color(corpus_name, color)
+            
+        # Update visibility to trigger a redraw with the new colors
+        self._update_visibility_settings()
     
     def _on_checkbox_changed(self, checkbox):
         """Handle checkbox state changes and update visibility settings."""
+        self._update_visibility_settings()
+    
+    def _update_visibility_settings(self):
+        """Collect all settings and notify the visualization."""
         if hasattr(self.target, 'visibility_updated'):
-            # Collect all current states
+            # Collect all current visibility states
             settings = {}
             for corpus_name, section in self.corpus_sections.items():
                 container = section['container']
                 for i in range(container.layout().count()):
                     item = container.layout().itemAt(i).widget()
                     if isinstance(item, QCheckBox):
+                        # Skip the group toggle checkbox as it's handled separately
+                        if "Group colors for all items" in item.text():
+                            continue
                         # Use the original item name stored in objectName
                         item_name = item.objectName()
                         settings[item_name] = item.isChecked()
             
+            # Add color settings
+            for corpus_name in self.corpus_sections.keys():
+                # Add color grouping state
+                settings[f"_group_{corpus_name}"] = self.color_grouping.get(corpus_name, False)
+                
+                # Add corpus color if available
+                if corpus_name in self.corpus_colors:
+                    settings[f"_color_{corpus_name}"] = self.corpus_colors[corpus_name].name()
+            
+            print(f"[DEBUG] Sending updated settings: {settings}")
             # Emit the updated settings
             self.target.visibility_updated.emit(settings)
     
