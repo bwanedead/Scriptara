@@ -2,21 +2,20 @@
 import os
 import pyqtgraph as pg
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidgetItem
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QObject, pyqtSignal
 import logging
 import numpy as np
 from analysis.advanced_analysis import compute_bo_scores
 
-class BaseVisualization:
-    """
-    Base class for all visualizations that handles corpus-specific report fetching.
-    All visualization classes should inherit from this class.
-    """
-    def __init__(self, controller=None, corpus_ids=None, initial_mode=None):
-        self.controller = controller  # Store controller reference
-        self.corpus_ids = corpus_ids if corpus_ids is not None else []  # List of corpus IDs
+class BaseVisualization(QWidget):
+    visibility_updated = pyqtSignal(dict)
+
+    def __init__(self, controller=None, corpus_ids=None, initial_mode=None, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.corpus_ids = corpus_ids if corpus_ids is not None else []
         self.initial_mode = initial_mode
-        self.file_reports = {}  # Persistent cache
+        self.file_reports = {}
         
         print(f"[DEBUG] BaseVisualization init with corpus_ids: {self.corpus_ids}")
         
@@ -161,6 +160,60 @@ class BaseVisualization:
         """Return the visualization widget"""
         raise NotImplementedError("Subclasses must implement widget() method.")
 
+class FrequencyDistributionSupplementary:
+    def __init__(self, mode):
+        self.mode = mode
+        self.mode_map = {'nominal': 1, 'percentage': 2, 'z_score': 3}
+
+    def compute_average_curve(self, corpus_id, file_reports):
+        if corpus_id not in file_reports:
+            return None
+        corpus_report = file_reports[corpus_id]
+        all_vals = []
+        for file_key, file_report in corpus_report.items():
+            if file_key != "Master Report" and 'data' in file_report and 'word_stats' in file_report['data']:
+                stats = file_report['data']['word_stats']
+                if stats:
+                    all_vals.append([s[self.mode_map.get(self.mode, 1)] for s in stats])
+        if not all_vals:
+            return None
+        max_len = max(len(vals) for vals in all_vals)
+        averaged_vals = []
+        for i in range(max_len):
+            vals_at_rank = [vals[i] for vals in all_vals if i < len(vals)]
+            averaged_vals.append(sum(vals_at_rank) / len(vals_at_rank) if vals_at_rank else 0)
+        ranks = list(range(1, len(averaged_vals) + 1))
+        return ranks, averaged_vals
+
+    def compute_best_fit_curve(self, corpus_id, file_reports):
+        ranks, avg_vals = self.compute_average_curve(corpus_id, file_reports) or (None, None)
+        if not ranks or not avg_vals:
+            return None
+        coeffs = np.polyfit(ranks, avg_vals, 3)
+        poly = np.poly1d(coeffs)
+        best_fit_vals = [poly(x) for x in ranks]
+        return ranks, best_fit_vals
+
+    def compute_variability_band(self, corpus_id, file_reports):
+        if corpus_id not in file_reports:
+            return None
+        corpus_report = file_reports[corpus_id]
+        all_vals = []
+        for file_key, file_report in corpus_report.items():
+            if file_key != "Master Report" and 'data' in file_report and 'word_stats' in file_report['data']:
+                stats = file_report['data']['word_stats']
+                if stats:
+                    all_vals.append([s[self.mode_map.get(self.mode, 1)] for s in stats])
+        if not all_vals:
+            return None
+        max_len = max(len(vals) for vals in all_vals)
+        min_vals, max_vals = [], []
+        for i in range(max_len):
+            vals_at_rank = [vals[i] for vals in all_vals if i < len(vals)]
+            min_vals.append(min(vals_at_rank) if vals_at_rank else 0)
+            max_vals.append(max(vals_at_rank) if vals_at_rank else 0)
+        ranks = list(range(1, len(min_vals) + 1))
+        return ranks, min_vals, max_vals
 
 class FrequencyDistributionVisualization(BaseVisualization):
     def __init__(self, controller=None, initial_mode='nominal', corpus_ids=None):
@@ -169,31 +222,56 @@ class FrequencyDistributionVisualization(BaseVisualization):
         self.current_mode = initial_mode
         self.x_log = False
         self.y_log = False
-
-        # mode_map defines the index of each metric in word_stats
-        self.mode_map = {
-            'nominal': 1,
-            'percentage': 2,
-            'z_score': 3
-        }
-
-        print("[DEBUG] Setting up plot widget")
+        self.supplementary = FrequencyDistributionSupplementary(self.current_mode)
+        self.analytics_cache = {}  # {corpus_id: {"average": (ranks, vals), "best_fit": (ranks, vals), "band": (ranks, min_vals, max_vals)}}
+        
+        # Initialize visibility settings with default values (show corpus curves by default)
+        self.visibility_settings = {}
+        if corpus_ids:
+            for corpus_id in corpus_ids:
+                # Enable the corpus curves by default, but leave analytics off
+                self.visibility_settings[corpus_id] = True
+                
+        self.mode_map = {'nominal': 1, 'percentage': 2, 'z_score': 3}
         pg.setConfigOptions(antialias=True, useOpenGL=True)
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('k')
-
-        print("[DEBUG] Running initial plot update")
+        
+        print(f"[DEBUG] Default visibility settings: {self.visibility_settings}")
         self.update_plot()
+        self.visibility_updated.connect(self.set_visibility_settings)
         print("[DEBUG] Initialization complete")
 
-    def widget(self):
-        return self.plot_widget
+    def update_data_source(self):
+        old_reports = self.file_reports.copy()
+        super().update_data_source()
+        if old_reports != self.file_reports:  # Invalidate cache if data changes
+            self.analytics_cache.clear()
+            print(f"[DEBUG] Analytics cache cleared due to data change")
+
+    def get_available_plot_settings(self):
+        items = []
+        if self.file_reports:
+            for corpus_id in self.corpus_ids or []:
+                if corpus_id in self.file_reports:
+                    items.append(corpus_id)
+                    items.extend([f"{corpus_id} (Average)", f"{corpus_id} (Best Fit)", f"{corpus_id} (Band)"])
+        return items
+
+    def set_visibility_settings(self, settings):
+        print(f"[DEBUG] Setting visibility_settings: {settings}")
+        self.visibility_settings.update(settings)
+        self.update_plot()
 
     def set_mode(self, mode):
         if mode in self.mode_map:
             self.current_mode = mode
+            self.supplementary.mode = mode
+            self.analytics_cache.clear()  # Invalidate cache on mode change
+            print(f"[DEBUG] Analytics cache cleared due to mode change")
         else:
             self.current_mode = 'nominal'
+            self.supplementary.mode = 'nominal'
         self.update_plot()
 
     def set_x_log(self, enabled):
@@ -205,91 +283,82 @@ class FrequencyDistributionVisualization(BaseVisualization):
         self.update_plot()
 
     def get_values(self, mode):
-        print(f"[DEBUG] Getting values for mode: {mode} using corpus: {self.corpus_ids[0] if self.corpus_ids else None}")
+        print(f"[DEBUG] Getting values for mode: {mode} with visibility_settings: {self.visibility_settings}")
         col = self.mode_map.get(mode, 1)
         data_sets = {}
-        
-        # VERIFY WE HAVE DATA
+        self.update_data_source()
         if not self.file_reports:
-            print(f"[ERROR] No file_reports data available for corpus: {self.corpus_ids[0] if self.corpus_ids else None}")
+            print(f"[ERROR] No file_reports data available")
             return data_sets
-                
-        # Show what reports we have
-        print(f"[DEBUG] Available reports for corpus {self.corpus_ids}: {list(self.file_reports.keys())}")
-        
-        # Process each corpus in corpus_ids
-        for corpus_id in self.corpus_ids:
-            if corpus_id not in self.file_reports:
-                print(f"[ERROR] Corpus {corpus_id} not found in file_reports")
-                continue
-                
-            # Get the corpus report
-            corpus_report = self.file_reports[corpus_id]
-            print(f"[DEBUG] Processing corpus report for {corpus_id}, keys: {list(corpus_report.keys())}")
-            
-            # Iterate through file reports in this corpus
-            for file_key, file_report in corpus_report.items():
-                # Skip Master Report
-                if file_key == "Master Report":
-                    continue
-                    
-                if 'data' not in file_report:
-                    print(f"[ERROR] No 'data' key in file report: {file_key}")
-                    continue
-                    
-                if 'word_stats' not in file_report['data']:
-                    print(f"[ERROR] No 'word_stats' key in file report data: {file_key}")
-                    continue
-                    
-                stats = file_report['data']['word_stats']
-                if not stats:
-                    print(f"[WARNING] Empty word_stats for {file_key}")
-                    continue
-                    
-                ranks = range(1, len(stats) + 1)
-                vals = [s[col] for s in stats]
-                # Use corpus_id + file_key as the dataset name for clarity
-                dataset_name = f"{corpus_id}: {os.path.basename(file_key)}"
-                data_sets[dataset_name] = (list(ranks), vals)
-                print(f"[DEBUG] Processed {file_key} for corpus {corpus_id}: {len(vals)} values")
-            
-        print(f"[DEBUG] Returning {len(data_sets)} datasets for {self.corpus_ids}")
+        for corpus_id in self.corpus_ids or []:
+            if corpus_id in self.file_reports:
+                if corpus_id not in self.analytics_cache:
+                    self.analytics_cache[corpus_id] = {}
+                if self.visibility_settings.get(corpus_id, False):
+                    corpus_report = self.file_reports[corpus_id]
+                    for file_key in corpus_report.keys():
+                        if file_key != "Master Report":
+                            file_report = corpus_report[file_key]
+                            if 'data' in file_report and 'word_stats' in file_report['data']:
+                                stats = file_report['data']['word_stats']
+                                if stats:
+                                    ranks = list(range(1, len(stats) + 1))
+                                    vals = [s[col] for s in stats]
+                                    data_sets[f"{corpus_id}: {os.path.basename(file_key)}"] = (ranks, vals)
+                if self.visibility_settings.get(f"{corpus_id} (Average)", False):
+                    if "average" not in self.analytics_cache[corpus_id]:
+                        self.analytics_cache[corpus_id]["average"] = self.supplementary.compute_average_curve(corpus_id, self.file_reports)
+                    if self.analytics_cache[corpus_id]["average"]:
+                        data_sets[f"{corpus_id} (Average)"] = self.analytics_cache[corpus_id]["average"]
+                if self.visibility_settings.get(f"{corpus_id} (Best Fit)", False):
+                    if "best_fit" not in self.analytics_cache[corpus_id]:
+                        self.analytics_cache[corpus_id]["best_fit"] = self.supplementary.compute_best_fit_curve(corpus_id, self.file_reports)
+                    if self.analytics_cache[corpus_id]["best_fit"]:
+                        data_sets[f"{corpus_id} (Best Fit)"] = self.analytics_cache[corpus_id]["best_fit"]
+                if self.visibility_settings.get(f"{corpus_id} (Band)", False):
+                    if "band" not in self.analytics_cache[corpus_id]:
+                        self.analytics_cache[corpus_id]["band"] = self.supplementary.compute_variability_band(corpus_id, self.file_reports)
+                    if self.analytics_cache[corpus_id]["band"]:
+                        data_sets[f"{corpus_id} (Band)"] = self.analytics_cache[corpus_id]["band"]
         return data_sets
 
     def update_plot(self):
-        # First update the data source
-        self.update_data_source()
-        
-        print(f"[DEBUG] Starting plot update for corpus: {self.corpus_ids}")
+        print(f"[DEBUG] Starting plot update with visibility_settings: {self.visibility_settings}")
         self.plot_widget.clear()
         data = self.get_values(self.current_mode)
-
+        plot_item = self.plot_widget.getPlotItem()
+        plot_item.setLogMode(x=self.x_log, y=self.y_log)
         if not data:
-            print(f"[DEBUG] No data available to plot for corpus: {self.corpus_ids}")
+            print(f"[DEBUG] No data to plot")
             return
-
-        print(f"[DEBUG] Plotting {len(data)} datasets for corpus: {self.corpus_ids}")
-        colors = [
-            (102, 153, 255), (102, 255, 178), (255, 204, 102),
-            (255, 102, 178), (178, 102, 255), (102, 255, 255), (255, 178, 102)
-        ]
-
-        for i, (rep, (ranks, vals)) in enumerate(data.items()):
-            c = colors[i % len(colors)]
-            pen = pg.mkPen(color=c, width=1.5)
-            self.plot_widget.plot(ranks, vals, pen=pen, name=rep, clear=False)
-            print(f"[DEBUG] Plotted dataset {i+1} for corpus: {self.corpus_ids}")
-
-        self.plot_widget.getPlotItem().setLogMode(x=self.x_log, y=self.y_log)
-        self.plot_widget.getPlotItem().enableAutoRange()
-        self.plot_widget.getPlotItem().autoRange()
-
-        # Force update
+        colors = [(102, 153, 255), (102, 255, 178), (255, 204, 102), (255, 102, 178), (178, 102, 255), (102, 255, 255), (255, 178, 102)]
+        color_index = 0
+        for name, data_item in data.items():
+            if name.endswith("(Band)"):
+                ranks, min_vals, max_vals = data_item
+                plot_item.plot(ranks, min_vals, pen='gray', name=f"{name} Min")
+                plot_item.plot(ranks, max_vals, pen='gray', name=f"{name} Max")
+                fill = pg.FillBetweenItem(plot_item.listDataItems()[-2], plot_item.listDataItems()[-1], brush=(100, 100, 100, 50))
+                plot_item.addItem(fill)
+            else:
+                ranks, vals = data_item
+                if name.endswith("(Average)"):
+                    pen = pg.mkPen(color='w', width=2, style=Qt.DashLine)
+                elif name.endswith("(Best Fit)"):
+                    pen = pg.mkPen(color='y', width=2)
+                else:
+                    pen = pg.mkPen(color=colors[color_index % len(colors)], width=1.5)
+                    color_index += 1
+                plot_item.plot(ranks, vals, pen=pen, name=name)
+        plot_item.enableAutoRange()
+        plot_item.autoRange()
         self.plot_widget.update()
         self.plot_widget.repaint()
         QApplication.processEvents()
-        print(f"[DEBUG] Plot update complete for corpus: {self.corpus_ids}")
+        print(f"[DEBUG] Plot update complete")
 
+    def widget(self):
+        return self.plot_widget
 
 class FrequencyReportsAggregator:
     """

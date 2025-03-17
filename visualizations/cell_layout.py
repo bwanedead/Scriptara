@@ -4,7 +4,7 @@ import os
 import math
 import pyqtgraph as pg
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton, QDialog, QListWidget, QScrollArea, QCheckBox, QFrame, QSizePolicy, QApplication
+                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton, QDialog, QListWidget, QListWidgetItem, QScrollArea, QCheckBox, QFrame, QSizePolicy, QApplication
                             )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QPoint, QRect
 from PyQt5.QtGui import QColor, QBrush, QPalette, QIcon
@@ -71,19 +71,21 @@ class BaseMetricLayout:
         self.corpus_label = None
         self.settings_sidebar = None
         self.sidebar_button = None
-        self.content_container = None
+        # Create content container once here
+        self.content_container = QWidget()
 
     def generate_layout(self):
+        """Create the main layout with header, content area, and sidebar container."""
         self.layout_widget = QWidget()
         
-        # Create a main layout that will hold both the sidebar button and the content
+        # Main layout for entire widget
         main_layout = QHBoxLayout(self.layout_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
         # Create the sidebar toggle button
         self.sidebar_button = QToolButton()
-        self.sidebar_button.setText("◀")  # Left arrow (pointing outward) - click to open
+        self.sidebar_button.setText("◀")
         self.sidebar_button.setToolTip("Open multi-corpus settings menu")
         self.sidebar_button.setFixedWidth(20)
         self.sidebar_button.setStyleSheet("""
@@ -102,35 +104,27 @@ class BaseMetricLayout:
             }
         """)
         self.sidebar_button.clicked.connect(self.toggle_settings_sidebar)
-        
-        # Add the sidebar button to the main layout
         main_layout.addWidget(self.sidebar_button)
         
-        # Create a container for the sidebar and content
-        container = QWidget()
-        container_layout = QHBoxLayout(container)
+        # Create a container for sidebar and content with horizontal layout
+        self.sidebar_container = QWidget()
+        container_layout = QHBoxLayout(self.sidebar_container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
         
-        # Create the settings sidebar
-        self.settings_sidebar = SettingsSidebar(
-            self.vis if hasattr(self, 'vis') else self, 
-            container
-        )
-        self.settings_sidebar.hide()  # Initially hidden
-        
-        # Create a container for the actual content
-        self.content_container = QWidget()
+        # Add the content container to the container layout
+        # (the sidebar will be inserted at index 0 when needed)
         content_layout = QVBoxLayout(self.content_container)
         content_layout.setContentsMargins(5, 5, 5, 5)
         content_layout.setSpacing(10)
-        
-        # Add the sidebar and content to the container
-        container_layout.addWidget(self.settings_sidebar)
         container_layout.addWidget(self.content_container)
         
+        # Add the sidebar if it exists
+        if self.settings_sidebar:
+            container_layout.insertWidget(0, self.settings_sidebar)
+        
         # Add the container to the main layout
-        main_layout.addWidget(container)
+        main_layout.addWidget(self.sidebar_container)
         
         # Create header layout
         header_layout = QHBoxLayout()
@@ -141,20 +135,19 @@ class BaseMetricLayout:
         title_label.setStyleSheet("color: #fff; font-size: 14px; font-weight: bold;")
         header_layout.addWidget(title_label)
         
-        # Add corpus label if available
+        # Add corpus info
         if hasattr(self.vis, 'corpus_ids') and self.vis.corpus_ids:
             if len(self.vis.corpus_ids) == 1:
                 corpus_text = f"Corpus: {self.vis.corpus_ids[0]}"
             else:
                 corpus_text = f"Corpora: {len(self.vis.corpus_ids)} selected"
-            self.corpus_label = QLabel(corpus_text)
-            self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
-            header_layout.addWidget(self.corpus_label)
         elif hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
-            self.corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
-            self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
-            header_layout.addWidget(self.corpus_label)
-        
+            corpus_text = f"Corpus: {self.vis.corpus_id}"
+        else:
+            corpus_text = "No corpus selected"
+        self.corpus_label = QLabel(corpus_text)
+        self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        header_layout.addWidget(self.corpus_label)
         header_layout.addStretch()
         
         # Add refresh button
@@ -175,7 +168,7 @@ class BaseMetricLayout:
         refresh_btn.clicked.connect(self.refresh_visualization)
         header_layout.addWidget(refresh_btn)
         
-        # Add manage corpora button
+        # Add corpus selector button
         manage_btn = QToolButton()
         manage_btn.setText("Select Corpora")
         manage_btn.setToolTip("Select which corpora to display in this visualization")
@@ -193,9 +186,10 @@ class BaseMetricLayout:
         manage_btn.clicked.connect(self.open_corpus_selector)
         header_layout.addWidget(manage_btn)
         
+        # Add header to content layout
         content_layout.addLayout(header_layout)
         
-        # Add content
+        # Add custom content from subclasses
         self.add_content(content_layout)
         
         return self.layout_widget
@@ -270,24 +264,40 @@ class BaseMetricLayout:
 
     def toggle_settings_sidebar(self):
         """Toggle the settings sidebar visibility."""
-        if self.settings_sidebar:
-            # Toggle visibility
-            if self.settings_sidebar.is_visible:
-                # If visible, hide it
-                self.settings_sidebar.close_sidebar()
-                # Update button to show "open" arrow (pointing outward)
-                self.sidebar_button.setText("◀")
-                self.sidebar_button.setToolTip("Open multi-corpus settings menu")
+        # Find the container widget (parent of content_container)
+        container = self.content_container.parentWidget()
+        
+        # Create the sidebar if it doesn't exist
+        if not self.settings_sidebar:
+            # Create with layout_widget as parent to ensure proper memory management
+            self.settings_sidebar = SettingsSidebar(self.vis, self.layout_widget)
+            
+            # If we have a container, add the sidebar to its layout
+            if container and container.layout():
+                # Make sure to insert the sidebar at the beginning of the layout
+                container.layout().insertWidget(0, self.settings_sidebar)
+                print("[DEBUG] Added settings sidebar to container layout")
             else:
-                # If hidden, show it
-                self.settings_sidebar.show_settings(self.vis if hasattr(self, 'vis') else self)
-                # Update button to show "close" arrow (pointing inward)
-                self.sidebar_button.setText("▶")
-                self.sidebar_button.setToolTip("Close multi-corpus settings menu")
+                print("[WARNING] Could not find container to add sidebar to")
+                
+        # Get available plot settings
+        plot_items = self.get_available_plot_settings()
+        current_settings = getattr(self.vis, 'visibility_settings', {})
+        
+        # Toggle visibility
+        if self.settings_sidebar.is_visible:
+            self.settings_sidebar.close_sidebar()
+            self.sidebar_button.setText("◀")
+            self.sidebar_button.setToolTip("Open multi-corpus settings menu")
+        else:
+            self.settings_sidebar.show_settings(self.vis, plot_items, current_settings)
+            self.sidebar_button.setText("▶")
+            self.sidebar_button.setToolTip("Close multi-corpus settings menu")
 
     def on_settings_changed(self, settings):
-        # Placeholder method, no action needed yet
-        pass
+        if hasattr(self.vis, 'set_visibility_settings'):
+            self.vis.set_visibility_settings(settings)
+        self.refresh_visualization()
 
     def get_available_plot_settings(self):
         return []
@@ -1418,78 +1428,123 @@ class CorpusSelector(QDialog):
             if checkbox.isChecked()
         ]
 
-
 class SettingsSidebar(QWidget):
     def __init__(self, target, parent=None):
-        super().__init__(parent)  # Make it a child of the parent
+        super().__init__(parent)
         self.target = target
         self.setFixedWidth(200)
-        self.setStyleSheet("""
-            background-color: #2b2b2b; 
-            color: white;
-            border: 1px solid #444;
-            border-radius: 3px;
-        """)
+        self.setStyleSheet("background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 3px;")
         
+        # Create layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         
-        # Add a title
-        title_label = QLabel("Settings")
+        # Add title
+        title_label = QLabel("Plot Settings")
         title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: white;")
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
-        # Add a separator line
+        # Add separator
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("background-color: #444;")
         layout.addWidget(separator)
         
+        # Add list widget for items
         self.items_list = QListWidget()
         self.items_list.setSelectionMode(QListWidget.NoSelection)
-        self.items_list.setStyleSheet("""
-            QListWidget {
-                background-color: #333;
-                border: 1px solid #555;
-                border-radius: 2px;
-            }
-        """)
-        
-        self.close_btn = QPushButton("Close")
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #444;
-                color: white;
-                border: none;
-                padding: 5px;
-                border-radius: 2px;
-            }
-            QPushButton:hover {
-                background-color: #555;
-            }
-        """)
-        
+        self.items_list.setStyleSheet("QListWidget {background-color: #333; border: 1px solid #555; border-radius: 2px;}")
         layout.addWidget(self.items_list)
+        
+        # Add close button
+        self.close_btn = QPushButton("Close")
+        self.close_btn.setStyleSheet("QPushButton {background-color: #444; color: white; border: none; padding: 5px; border-radius: 2px;} QPushButton:hover {background-color: #555;}")
         layout.addWidget(self.close_btn)
         
+        # Connect the close button
         self.close_btn.clicked.connect(self.close_sidebar)
         
+        # Set initial state
         self.is_visible = False
         
-        # Hide initially
+        # Prepare animation
+        self.animation = QPropertyAnimation(self, b"pos")
+        self.animation.setDuration(200)
+        
+        # Initially hide
         self.hide()
+        print("[DEBUG] SettingsSidebar initialized with parent:", parent)
 
-    def show_settings(self, target):
+    def show_settings(self, target, plot_items=None, current_settings=None):
+        """Show the sidebar with the given plot items and settings."""
+        print("[DEBUG] show_settings called with items:", plot_items)
+        self.target = target
+        
+        # Default values
+        if plot_items is None:
+            plot_items = []
+        if current_settings is None:
+            current_settings = {}
+            
+        # Clear and populate the list
+        self.items_list.clear()
+        for item_name in plot_items:
+            item = QListWidgetItem(item_name)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if current_settings.get(item_name, False) else Qt.Unchecked)
+            self.items_list.addItem(item)
+            
+        # Disconnect any previous signal connections
+        try:
+            self.items_list.itemChanged.disconnect()
+        except Exception:
+            pass
+            
+        # Connect item changes to update visibility settings
+        if hasattr(self.target, 'visibility_updated'):
+            self.items_list.itemChanged.connect(lambda: self.target.visibility_updated.emit(
+                {item.text(): item.checkState() == Qt.Checked for item in 
+                 self.items_list.findItems("", Qt.MatchContains)}
+            ))
+            
+        # Show with animation if not already visible
         if not self.is_visible:
+            # Ensure we're in the right position before starting
+            self.move(-self.width(), 0)
             self.show()
+            
+            # Set up animation
+            self.animation.setStartValue(self.pos())
+            self.animation.setEndValue(QPoint(0, 0))
+            self.animation.start()
             self.is_visible = True
+            print("[DEBUG] Sidebar animation started")
         else:
+            # Already visible, just close
             self.close_sidebar()
 
     def close_sidebar(self):
+        """Close the sidebar with animation."""
+        print("[DEBUG] close_sidebar called, is_visible:", self.is_visible)
         if self.is_visible:
-            self.hide()
+            # Disconnect any previous connections
+            try:
+                self.animation.finished.disconnect()
+            except Exception:
+                pass
+                
+            # Set up close animation
+            self.animation.setStartValue(self.pos())
+            self.animation.setEndValue(QPoint(-self.width(), 0))
+            
+            # Connect to hide when finished
+            self.animation.finished.connect(self.hide)
+            
+            # Start animation
+            self.animation.start()
             self.is_visible = False
+            print("[DEBUG] Sidebar close animation started")
+
 
