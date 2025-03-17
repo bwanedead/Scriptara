@@ -3,6 +3,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PyQt5.QtCore import pyqtSignal, Qt
 from config.metric_registry import get_metric, METRICS
+from visualizations.cell_layout import SettingsSidebar
 
 from visualizations.visualization_registry import (
     get_visualization_class, 
@@ -51,10 +52,15 @@ def create_cell(controller, category_key, sub_key, sub_sub_key=None, initial_mod
                 # Create layout with visualization
                 layout = layout_class(vis)
                 if hasattr(layout, 'generate_layout'):
-                    layout = layout.generate_layout()
+                    layout_widget = layout.generate_layout()
+                    # Store the visualization in the layout widget for reference
+                    layout_widget.vis = vis
                     
-                print(f"[DEBUG] Created layout for {vis_type} with visualization")
-                return layout
+                    print(f"[DEBUG] Created layout for {vis_type} with visualization")
+                    return layout_widget
+                else:
+                    print(f"[DEBUG] Created layout for {vis_type} with visualization")
+                    return layout
             else:
                 # Layouts like FrequencyReportsLayout still expect corpus_id
                 layout = layout_class(controller, corpus_id)

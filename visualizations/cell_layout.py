@@ -4,10 +4,10 @@ import os
 import math
 import pyqtgraph as pg
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton, QDialog, QListWidget, QScrollArea, QCheckBox
+                            QHBoxLayout, QPushButton, QHeaderView, QComboBox, QToolButton, QDialog, QListWidget, QScrollArea, QCheckBox, QFrame, QSizePolicy, QApplication
                             )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QBrush, QPalette
+from PyQt5.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QPoint, QRect
+from PyQt5.QtGui import QColor, QBrush, QPalette, QIcon
 from pyqtgraph import PlotWidget, BarGraphItem, mkPen
 import numpy as np
 
@@ -68,24 +68,80 @@ class BaseMetricLayout:
     def __init__(self, vis):
         self.vis = vis
         self.layout_widget = None
-        self.corpus_label = None  # Add reference to update corpus indicator later
+        self.corpus_label = None
+        self.settings_sidebar = None
+        self.sidebar_button = None
+        self.content_container = None
 
     def generate_layout(self):
-        """Generate the base layout with refresh and manage corpora functionality."""
         self.layout_widget = QWidget()
-        layout = QVBoxLayout(self.layout_widget)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(10)
-
-        # Header with title, corpus indicator, refresh, and manage buttons
+        
+        # Create a main layout that will hold both the sidebar button and the content
+        main_layout = QHBoxLayout(self.layout_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Create the sidebar toggle button
+        self.sidebar_button = QToolButton()
+        self.sidebar_button.setText("◀")  # Left arrow (pointing outward) - click to open
+        self.sidebar_button.setToolTip("Open multi-corpus settings menu")
+        self.sidebar_button.setFixedWidth(20)
+        self.sidebar_button.setStyleSheet("""
+            QToolButton {
+                color: #888888;
+                border: none;
+                border-right: 1px solid #444;
+                background-color: #333333;
+                font-size: 14px;
+                padding: 4px 0px;
+                margin: 0px;
+            }
+            QToolButton:hover {
+                color: #ffffff;
+                background-color: #444444;
+            }
+        """)
+        self.sidebar_button.clicked.connect(self.toggle_settings_sidebar)
+        
+        # Add the sidebar button to the main layout
+        main_layout.addWidget(self.sidebar_button)
+        
+        # Create a container for the sidebar and content
+        container = QWidget()
+        container_layout = QHBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        
+        # Create the settings sidebar
+        self.settings_sidebar = SettingsSidebar(
+            self.vis if hasattr(self, 'vis') else self, 
+            container
+        )
+        self.settings_sidebar.hide()  # Initially hidden
+        
+        # Create a container for the actual content
+        self.content_container = QWidget()
+        content_layout = QVBoxLayout(self.content_container)
+        content_layout.setContentsMargins(5, 5, 5, 5)
+        content_layout.setSpacing(10)
+        
+        # Add the sidebar and content to the container
+        container_layout.addWidget(self.settings_sidebar)
+        container_layout.addWidget(self.content_container)
+        
+        # Add the container to the main layout
+        main_layout.addWidget(container)
+        
+        # Create header layout
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
         
+        # Add title
         title_label = QLabel(self.get_title())
         title_label.setStyleSheet("color: #fff; font-size: 14px; font-weight: bold;")
         header_layout.addWidget(title_label)
         
-        # Add corpus indicator, updated for multiple corpora
+        # Add corpus label if available
         if hasattr(self.vis, 'corpus_ids') and self.vis.corpus_ids:
             if len(self.vis.corpus_ids) == 1:
                 corpus_text = f"Corpus: {self.vis.corpus_ids[0]}"
@@ -94,7 +150,6 @@ class BaseMetricLayout:
             self.corpus_label = QLabel(corpus_text)
             self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
             header_layout.addWidget(self.corpus_label)
-        # Fallback to single corpus_id if corpus_ids isn't set yet
         elif hasattr(self.vis, 'corpus_id') and self.vis.corpus_id:
             self.corpus_label = QLabel(f"Corpus: {self.vis.corpus_id}")
             self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
@@ -102,7 +157,7 @@ class BaseMetricLayout:
         
         header_layout.addStretch()
         
-        # Existing refresh button (unchanged)
+        # Add refresh button
         refresh_btn = QToolButton()
         refresh_btn.setText("⟳")
         refresh_btn.setToolTip("Refresh visualization")
@@ -120,10 +175,10 @@ class BaseMetricLayout:
         refresh_btn.clicked.connect(self.refresh_visualization)
         header_layout.addWidget(refresh_btn)
         
-        # New "Manage" button for CorpusSelector
+        # Add manage corpora button
         manage_btn = QToolButton()
-        manage_btn.setText("Corpus Manager")
-        manage_btn.setToolTip("Select Corpora to Display")
+        manage_btn.setText("Select Corpora")
+        manage_btn.setToolTip("Select which corpora to display in this visualization")
         manage_btn.setStyleSheet("""
             QToolButton {
                 color: #888888;
@@ -138,10 +193,10 @@ class BaseMetricLayout:
         manage_btn.clicked.connect(self.open_corpus_selector)
         header_layout.addWidget(manage_btn)
         
-        layout.addLayout(header_layout)
+        content_layout.addLayout(header_layout)
         
-        # Add content area
-        self.add_content(layout)
+        # Add content
+        self.add_content(content_layout)
         
         return self.layout_widget
 
@@ -213,6 +268,30 @@ class BaseMetricLayout:
                 self.corpus_label.setText(f"Corpora: {len(selected_corpora)} selected")
         self.refresh_visualization()
 
+    def toggle_settings_sidebar(self):
+        """Toggle the settings sidebar visibility."""
+        if self.settings_sidebar:
+            # Toggle visibility
+            if self.settings_sidebar.is_visible:
+                # If visible, hide it
+                self.settings_sidebar.close_sidebar()
+                # Update button to show "open" arrow (pointing outward)
+                self.sidebar_button.setText("◀")
+                self.sidebar_button.setToolTip("Open multi-corpus settings menu")
+            else:
+                # If hidden, show it
+                self.settings_sidebar.show_settings(self.vis if hasattr(self, 'vis') else self)
+                # Update button to show "close" arrow (pointing inward)
+                self.sidebar_button.setText("▶")
+                self.sidebar_button.setToolTip("Close multi-corpus settings menu")
+
+    def on_settings_changed(self, settings):
+        # Placeholder method, no action needed yet
+        pass
+
+    def get_available_plot_settings(self):
+        return []
+
 
 class FrequencyDistributionLayout(BaseMetricLayout):
     def get_title(self):
@@ -259,6 +338,11 @@ class FrequencyDistributionLayout(BaseMetricLayout):
             self.vis.update_plot()
         
         print(f"[DEBUG] Frequency distribution refreshed for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
+
+    def get_available_plot_settings(self):
+        if hasattr(self.vis, 'get_available_plot_settings'):
+            return self.vis.get_available_plot_settings()
+        return []
 
 
 class FrequencyReportsLayout(QWidget):
@@ -1333,4 +1417,79 @@ class CorpusSelector(QDialog):
             checkbox.text() for checkbox in self.corpus_checkboxes 
             if checkbox.isChecked()
         ]
+
+
+class SettingsSidebar(QWidget):
+    def __init__(self, target, parent=None):
+        super().__init__(parent)  # Make it a child of the parent
+        self.target = target
+        self.setFixedWidth(200)
+        self.setStyleSheet("""
+            background-color: #2b2b2b; 
+            color: white;
+            border: 1px solid #444;
+            border-radius: 3px;
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Add a title
+        title_label = QLabel("Settings")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: white;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # Add a separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet("background-color: #444;")
+        layout.addWidget(separator)
+        
+        self.items_list = QListWidget()
+        self.items_list.setSelectionMode(QListWidget.NoSelection)
+        self.items_list.setStyleSheet("""
+            QListWidget {
+                background-color: #333;
+                border: 1px solid #555;
+                border-radius: 2px;
+            }
+        """)
+        
+        self.close_btn = QPushButton("Close")
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #444;
+                color: white;
+                border: none;
+                padding: 5px;
+                border-radius: 2px;
+            }
+            QPushButton:hover {
+                background-color: #555;
+            }
+        """)
+        
+        layout.addWidget(self.items_list)
+        layout.addWidget(self.close_btn)
+        
+        self.close_btn.clicked.connect(self.close_sidebar)
+        
+        self.is_visible = False
+        
+        # Hide initially
+        self.hide()
+
+    def show_settings(self, target):
+        if not self.is_visible:
+            self.show()
+            self.is_visible = True
+        else:
+            self.close_sidebar()
+
+    def close_sidebar(self):
+        if self.is_visible:
+            self.hide()
+            self.is_visible = False
 
