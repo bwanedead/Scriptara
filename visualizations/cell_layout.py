@@ -264,35 +264,38 @@ class BaseMetricLayout:
 
     def toggle_settings_sidebar(self):
         """Toggle the settings sidebar visibility."""
-        # Find the container widget (parent of content_container)
-        container = self.content_container.parentWidget()
-        
-        # Create the sidebar if it doesn't exist
+        # Only create the sidebar once
         if not self.settings_sidebar:
-            # Create with layout_widget as parent to ensure proper memory management
-            self.settings_sidebar = SettingsSidebar(self.vis, self.layout_widget)
+            # Create the sidebar with the sidebar_container as parent for proper positioning
+            self.settings_sidebar = SettingsSidebar(self.vis, self.sidebar_container)
             
-            # If we have a container, add the sidebar to its layout
-            if container and container.layout():
-                # Make sure to insert the sidebar at the beginning of the layout
-                container.layout().insertWidget(0, self.settings_sidebar)
-                print("[DEBUG] Added settings sidebar to container layout")
+            # Add the sidebar to the beginning of the container layout
+            if self.sidebar_container and self.sidebar_container.layout():
+                self.sidebar_container.layout().insertWidget(0, self.settings_sidebar)
+                print(f"[DEBUG] Created and added settings sidebar to container: {self.sidebar_container}")
             else:
-                print("[WARNING] Could not find container to add sidebar to")
-                
-        # Get available plot settings
+                print("[WARNING] Could not find sidebar_container to add sidebar to")
+        
+        # Get plot settings and current visibility settings
         plot_items = self.get_available_plot_settings()
         current_settings = getattr(self.vis, 'visibility_settings', {})
         
-        # Toggle visibility
+        # Check if we have any plot items to display
+        if not plot_items:
+            print("[WARNING] No plot settings available to display")
+            return
+            
+        # Toggle sidebar visibility based on current state
         if self.settings_sidebar.is_visible:
+            # Hide the sidebar
             self.settings_sidebar.close_sidebar()
             self.sidebar_button.setText("◀")
-            self.sidebar_button.setToolTip("Open multi-corpus settings menu")
+            self.sidebar_button.setToolTip("Open settings menu")
         else:
+            # Show the sidebar with updated settings
             self.settings_sidebar.show_settings(self.vis, plot_items, current_settings)
             self.sidebar_button.setText("▶")
-            self.sidebar_button.setToolTip("Close multi-corpus settings menu")
+            self.sidebar_button.setToolTip("Close settings menu")
 
     def on_settings_changed(self, settings):
         if hasattr(self.vis, 'set_visibility_settings'):
@@ -306,52 +309,100 @@ class BaseMetricLayout:
 class FrequencyDistributionLayout(BaseMetricLayout):
     def get_title(self):
         return "Frequency Distribution"
-
+    
     def add_content(self, layout):
-        plot_wid = self.vis.widget()
-        layout.addWidget(plot_wid)
-
+        # Access the visualization
+        freqdist_viz = self.vis
+        
+        # Create controls panel
         controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(10)
-
-        controls_layout.addWidget(QLabel("Distribution:"))
+        
+        # Add mode selection
+        mode_label = QLabel("Mode:")
+        mode_label.setStyleSheet("color: white;")
+        
         mode_combo = QComboBox()
-        mode_combo.addItems(["nominal", "percentage", "z_score"])
-        mode_combo.setCurrentText(self.vis.current_mode)
-        mode_combo.currentIndexChanged.connect(lambda: self.vis.set_mode(mode_combo.currentText()))
+        mode_combo.addItems(["Nominal", "Percentage", "Z-Score"])
+        mode_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #333; 
+                color: white; 
+                border: 1px solid #555;
+                padding: 2px;
+                border-radius: 2px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: url(down_arrow.png);
+                width: 10px;
+                height: 10px;
+            }
+        """)
+        
+        # Set initial mode
+        if freqdist_viz.current_mode == 'percentage':
+            mode_combo.setCurrentIndex(1)
+        elif freqdist_viz.current_mode == 'z_score':
+            mode_combo.setCurrentIndex(2)
+        else:  # nominal
+            mode_combo.setCurrentIndex(0)
+            
+        # Add toggle for log scales
+        x_log_btn = QCheckBox("Log X")
+        x_log_btn.setStyleSheet("color: white;")
+        x_log_btn.setChecked(freqdist_viz.x_log)
+        
+        y_log_btn = QCheckBox("Log Y")
+        y_log_btn.setStyleSheet("color: white;")
+        y_log_btn.setChecked(freqdist_viz.y_log)
+        
+        # Add all controls to layout
+        controls_layout.addWidget(mode_label)
         controls_layout.addWidget(mode_combo)
-
-        x_log_btn = QToolButton()
-        x_log_btn.setCheckable(True)
-        x_log_btn.setText("X Log")
-        x_log_btn.toggled.connect(self.vis.set_x_log)
-        controls_layout.addWidget(x_log_btn)
-
-        y_log_btn = QToolButton()
-        y_log_btn.setCheckable(True)
-        y_log_btn.setText("Y Log")
-        y_log_btn.toggled.connect(self.vis.set_y_log)
-        controls_layout.addWidget(y_log_btn)
-
         controls_layout.addStretch()
+        controls_layout.addWidget(x_log_btn)
+        controls_layout.addWidget(y_log_btn)
+        
+        # Connect the signals
+        mode_combo.currentIndexChanged.connect(lambda idx: self.set_mode(idx))
+        x_log_btn.toggled.connect(freqdist_viz.set_x_log)
+        y_log_btn.toggled.connect(freqdist_viz.set_y_log)
+        
+        # Connect visibility_updated signal if available
+        if hasattr(freqdist_viz, 'visibility_updated'):
+            freqdist_viz.visibility_updated.connect(freqdist_viz.set_visibility_settings)
+        
+        # Add the plot widget
+        plot_widget = freqdist_viz.widget()
+        
+        # Add the controls and plot to the layout
         layout.addLayout(controls_layout)
-
+        layout.addWidget(plot_widget)
+    
+    def set_mode(self, index):
+        """Convert combo box index to mode string and update visualization"""
+        mode_map = {0: 'nominal', 1: 'percentage', 2: 'z_score'}
+        if index in mode_map:
+            self.vis.set_mode(mode_map[index])
+    
     def refresh_visualization(self):
-        """Refresh the frequency distribution plot."""
-        print(f"[DEBUG] FrequencyDistributionLayout.refresh_visualization called for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
-        # First make sure we have the latest data
+        """Force refresh the visualization from latest data"""
+        # Update data source first
         if hasattr(self.vis, 'update_data_source'):
             self.vis.update_data_source()
         
         # Then update the plot
         if hasattr(self.vis, 'update_plot'):
             self.vis.update_plot()
-        
-        print(f"[DEBUG] Frequency distribution refreshed for corpus: {getattr(self.vis, 'corpus_id', 'unknown')}")
-
+            
     def get_available_plot_settings(self):
+        """Get available plot settings from visualization"""
         if hasattr(self.vis, 'get_available_plot_settings'):
-            return self.vis.get_available_plot_settings()
+            items = self.vis.get_available_plot_settings()
+            print(f"[DEBUG] Got {len(items)} plot settings from visualization")
+            return items
         return []
 
 
@@ -1432,54 +1483,92 @@ class SettingsSidebar(QWidget):
     def __init__(self, target, parent=None):
         super().__init__(parent)
         self.target = target
-        self.setFixedWidth(200)
-        self.setStyleSheet("background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 3px;")
+        self.setFixedWidth(250)  # Slightly wider for better presentation
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b; 
+                color: white;
+                border: 1px solid #444;
+                border-radius: 3px;
+            }
+            QLabel {
+                border: none;
+            }
+            QPushButton {
+                background-color: #444;
+                color: white;
+                border: none;
+                padding: 5px;
+                border-radius: 2px;
+            }
+            QPushButton:hover {
+                background-color: #555;
+            }
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:horizontal {
+                height: 0px;  /* Hide horizontal scrollbar */
+            }
+        """)
         
-        # Create layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
+        # Create main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
         
         # Add title
         title_label = QLabel("Plot Settings")
         title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: white;")
         title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        main_layout.addWidget(title_label)
         
         # Add separator
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("background-color: #444;")
-        layout.addWidget(separator)
+        main_layout.addWidget(separator)
         
-        # Add list widget for items
-        self.items_list = QListWidget()
-        self.items_list.setSelectionMode(QListWidget.NoSelection)
-        self.items_list.setStyleSheet("QListWidget {background-color: #333; border: 1px solid #555; border-radius: 2px;}")
-        layout.addWidget(self.items_list)
+        # Create scroll area for content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background-color: transparent;")
+        main_layout.addWidget(scroll, 1)  # 1 = stretch factor
+        
+        # Create container widget for scroll area
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: transparent; border: none;")
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(10)
+        self.content_layout.setAlignment(Qt.AlignTop)
+        scroll.setWidget(self.content_widget)
         
         # Add close button
         self.close_btn = QPushButton("Close")
-        self.close_btn.setStyleSheet("QPushButton {background-color: #444; color: white; border: none; padding: 5px; border-radius: 2px;} QPushButton:hover {background-color: #555;}")
-        layout.addWidget(self.close_btn)
+        self.close_btn.setCursor(Qt.PointingHandCursor)  # Show hand cursor on hover
+        main_layout.addWidget(self.close_btn)
         
         # Connect the close button
         self.close_btn.clicked.connect(self.close_sidebar)
         
         # Set initial state
         self.is_visible = False
-        
-        # Prepare animation
         self.animation = QPropertyAnimation(self, b"pos")
         self.animation.setDuration(200)
-        
-        # Initially hide
         self.hide()
         print("[DEBUG] SettingsSidebar initialized with parent:", parent)
+        
+        # For organized corpus data
+        self.corpus_sections = {}  # Store sections by corpus
+        self.color_buttons = {}    # Store color buttons by corpus
 
     def show_settings(self, target, plot_items=None, current_settings=None):
-        """Show the sidebar with the given plot items and settings."""
-        print("[DEBUG] show_settings called with items:", plot_items)
+        """Show the sidebar with organized plot items and settings."""
+        print("[DEBUG] show_settings called with items count:", len(plot_items) if plot_items else 0)
         self.target = target
         
         # Default values
@@ -1488,30 +1577,21 @@ class SettingsSidebar(QWidget):
         if current_settings is None:
             current_settings = {}
             
-        # Clear and populate the list
-        self.items_list.clear()
-        for item_name in plot_items:
-            item = QListWidgetItem(item_name)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if current_settings.get(item_name, False) else Qt.Unchecked)
-            self.items_list.addItem(item)
-            
-        # Disconnect any previous signal connections
-        try:
-            self.items_list.itemChanged.disconnect()
-        except Exception:
-            pass
-            
-        # Connect item changes to update visibility settings
-        if hasattr(self.target, 'visibility_updated'):
-            self.items_list.itemChanged.connect(lambda: self.target.visibility_updated.emit(
-                {item.text(): item.checkState() == Qt.Checked for item in 
-                 self.items_list.findItems("", Qt.MatchContains)}
-            ))
-            
+        # Clear the content layout
+        self._clear_content()
+        
+        # Organize items by corpus
+        corpus_groups = self._group_items_by_corpus(plot_items)
+        
+        # Add sections for each corpus
+        for corpus_name, items in corpus_groups.items():
+            # Create a section for this corpus
+            self._add_corpus_section(corpus_name, items, current_settings)
+        
         # Show with animation if not already visible
         if not self.is_visible:
-            # Ensure we're in the right position before starting
+            # Make sure we're in position for the animation to work correctly
+            self.raise_()  # Bring to front
             self.move(-self.width(), 0)
             self.show()
             
@@ -1524,7 +1604,186 @@ class SettingsSidebar(QWidget):
         else:
             # Already visible, just close
             self.close_sidebar()
-
+    
+    def _clear_content(self):
+        """Clear all widgets from the content layout."""
+        # Remove all widgets from content layout
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        # Reset tracking dictionaries
+        self.corpus_sections = {}
+        self.color_buttons = {}
+    
+    def _group_items_by_corpus(self, plot_items):
+        """Group plot items by their corpus."""
+        corpus_groups = {}
+        
+        for item in plot_items:
+            # Check if this is a corpus item or a derived item
+            if " (Average)" in item or " (Best Fit)" in item or " (Band)" in item:
+                # Extract corpus name from derived item
+                corpus_name = item.split(" (")[0]
+                item_type = item.split(" (")[1].rstrip(")")
+            else:
+                # Regular corpus item (could be "corpus: filename")
+                if ":" in item:
+                    corpus_name = item.split(":")[0]
+                else:
+                    corpus_name = item
+                item_type = "File"  # Regular file item
+            
+            # Create the corpus group if it doesn't exist
+            if corpus_name not in corpus_groups:
+                corpus_groups[corpus_name] = []
+            
+            # Add the item to its group
+            corpus_groups[corpus_name].append((item, item_type))
+        
+        return corpus_groups
+    
+    def _add_corpus_section(self, corpus_name, items, current_settings):
+        """Add a collapsible section for a corpus with its items."""
+        # Create frame for this corpus section
+        section_frame = QFrame()
+        section_frame.setFrameShape(QFrame.StyledPanel)
+        section_frame.setStyleSheet("""
+            QFrame {
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: #333;
+            }
+        """)
+        section_layout = QVBoxLayout(section_frame)
+        section_layout.setContentsMargins(8, 8, 8, 8)
+        section_layout.setSpacing(4)
+        
+        # Create header with corpus name and color selector
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Toggle button
+        toggle_btn = QPushButton("▼")  # Down arrow for expand
+        toggle_btn.setFixedWidth(20)
+        toggle_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                font-weight: bold;
+            }
+        """)
+        
+        # Corpus label
+        corpus_label = QLabel(corpus_name)
+        corpus_label.setStyleSheet("font-weight: bold; color: white;")
+        
+        # Color button
+        color_btn = QPushButton()
+        color_btn.setFixedSize(16, 16)
+        color_btn.setCursor(Qt.PointingHandCursor)
+        color_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #6699ff;  /* Default blue */
+                border: 1px solid #888;
+                border-radius: 8px;
+            }}
+        """)
+        color_btn.setToolTip("Change color for this corpus")
+        
+        # Store color button for later access
+        self.color_buttons[corpus_name] = color_btn
+        
+        # Add widgets to header
+        header_layout.addWidget(toggle_btn)
+        header_layout.addWidget(corpus_label)
+        header_layout.addStretch()
+        header_layout.addWidget(color_btn)
+        
+        # Add header to section
+        section_layout.addLayout(header_layout)
+        
+        # Create container for items (for collapsible effect)
+        items_container = QWidget()
+        items_layout = QVBoxLayout(items_container)
+        items_layout.setContentsMargins(5, 5, 5, 0)
+        items_layout.setSpacing(4)
+        
+        # Add items with modern checkboxes
+        for item_name, item_type in items:
+            checkbox = QCheckBox(item_type if item_type != "File" else os.path.basename(item_name.split(": ")[1]) if ": " in item_name else item_name)
+            checkbox.setStyleSheet("""
+                QCheckBox {
+                    color: #ddd;
+                    spacing: 5px;
+                }
+                QCheckBox::indicator {
+                    width: 16px;
+                    height: 16px;
+                    border: 1px solid #777;
+                    border-radius: 3px;
+                    background-color: #444;
+                }
+                QCheckBox::indicator:checked {
+                    background-color: #6699ff;
+                    border: 1px solid #6699ff;
+                    image: url(check.png);  /* Will fall back to default if not found */
+                }
+                QCheckBox::indicator:hover {
+                    border: 1px solid #999;
+                }
+            """)
+            checkbox.setChecked(current_settings.get(item_name, False))
+            checkbox.setObjectName(item_name)  # Store original item name
+            
+            # Connect the state change
+            checkbox.stateChanged.connect(lambda state, cb=checkbox: self._on_checkbox_changed(cb))
+            
+            items_layout.addWidget(checkbox)
+        
+        # Add items container to section
+        section_layout.addWidget(items_container)
+        
+        # Set up toggle behavior
+        toggle_btn.clicked.connect(lambda checked, w=items_container, b=toggle_btn: self._toggle_section(w, b))
+        
+        # Add complete section to content layout
+        self.content_layout.addWidget(section_frame)
+        
+        # Store section in our tracking dictionary
+        self.corpus_sections[corpus_name] = {
+            'frame': section_frame,
+            'container': items_container,
+            'toggle_btn': toggle_btn
+        }
+    
+    def _toggle_section(self, container, button):
+        """Toggle visibility of a section's items."""
+        if container.isVisible():
+            container.hide()
+            button.setText("►")  # Right arrow for collapsed
+        else:
+            container.show()
+            button.setText("▼")  # Down arrow for expanded
+    
+    def _on_checkbox_changed(self, checkbox):
+        """Handle checkbox state changes and update visibility settings."""
+        if hasattr(self.target, 'visibility_updated'):
+            # Collect all current states
+            settings = {}
+            for corpus_name, section in self.corpus_sections.items():
+                container = section['container']
+                for i in range(container.layout().count()):
+                    item = container.layout().itemAt(i).widget()
+                    if isinstance(item, QCheckBox):
+                        # Use the original item name stored in objectName
+                        item_name = item.objectName()
+                        settings[item_name] = item.isChecked()
+            
+            # Emit the updated settings
+            self.target.visibility_updated.emit(settings)
+    
     def close_sidebar(self):
         """Close the sidebar with animation."""
         print("[DEBUG] close_sidebar called, is_visible:", self.is_visible)
