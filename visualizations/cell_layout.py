@@ -145,9 +145,9 @@ class BaseMetricLayout:
             corpus_text = f"Corpus: {self.vis.corpus_id}"
         else:
             corpus_text = "No corpus selected"
-        self.corpus_label = QLabel(corpus_text)
-        self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
-        header_layout.addWidget(self.corpus_label)
+            self.corpus_label = QLabel(corpus_text)
+            self.corpus_label.setStyleSheet("color: #aaa; font-size: 12px;")
+            header_layout.addWidget(self.corpus_label)
         header_layout.addStretch()
         
         # Add refresh button
@@ -312,14 +312,14 @@ class BaseMetricLayout:
 class FrequencyDistributionLayout(BaseMetricLayout):
     def get_title(self):
         return "Frequency Distribution"
-    
+
     def add_content(self, layout):
         # Access the visualization
         freqdist_viz = self.vis
-        
+
         # Create controls panel
         controls_layout = QHBoxLayout()
-        
+
         # Add mode selection
         mode_label = QLabel("Mode:")
         mode_label.setStyleSheet("color: white;")
@@ -389,7 +389,7 @@ class FrequencyDistributionLayout(BaseMetricLayout):
         mode_map = {0: 'nominal', 1: 'percentage', 2: 'z_score'}
         if index in mode_map:
             self.vis.set_mode(mode_map[index])
-    
+
     def refresh_visualization(self):
         """Force refresh the visualization from latest data"""
         # Update data source first
@@ -399,7 +399,7 @@ class FrequencyDistributionLayout(BaseMetricLayout):
         # Then update the plot
         if hasattr(self.vis, 'update_plot'):
             self.vis.update_plot()
-            
+
     def get_available_plot_settings(self):
         """Get available plot settings from visualization"""
         if hasattr(self.vis, 'get_available_plot_settings'):
@@ -1489,10 +1489,10 @@ class SettingsSidebar(QWidget):
         self.setFixedWidth(250)  # Slightly wider for better presentation
         self.setStyleSheet("""
             QWidget {
-                background-color: #2b2b2b; 
-                color: white;
-                border: 1px solid #444;
-                border-radius: 3px;
+            background-color: #2b2b2b; 
+            color: white;
+            border: 1px solid #444;
+            border-radius: 3px;
             }
             QLabel {
                 border: none;
@@ -1946,7 +1946,7 @@ class SettingsSidebar(QWidget):
             print(f"[DEBUG] Sending updated settings: {settings}")
             # Emit the updated settings
             self.target.visibility_updated.emit(settings)
-    
+
     def close_sidebar(self):
         """Close the sidebar with animation."""
         print(f"[DEBUG] close_sidebar called, is_visible: {self.is_visible}, is_animating: {self.is_animating}")
