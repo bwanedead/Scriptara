@@ -211,9 +211,17 @@ class FrequencyDistributionSupplementary:
         min_vals, max_vals = [], []
         for i in range(max_len):
             vals_at_rank = [vals[i] for vals in all_vals if i < len(vals)]
-            min_vals.append(min(vals_at_rank) if vals_at_rank else 0)
-            max_vals.append(max(vals_at_rank) if vals_at_rank else 0)
+            if not vals_at_rank:
+                min_vals.append(0)
+                max_vals.append(0)
+            else:
+                min_vals.append(min(vals_at_rank))
+                max_vals.append(max(vals_at_rank))
         ranks = list(range(1, len(min_vals) + 1))
+        
+        # Debug output to confirm band data
+        print(f"[DEBUG] Variability band for {corpus_id} computed with {len(ranks)} points. Sample min: {min_vals[:3]}, max: {max_vals[:3]}")
+        
         return ranks, min_vals, max_vals
 
 class FrequencyDistributionVisualization(BaseVisualization):
@@ -232,6 +240,10 @@ class FrequencyDistributionVisualization(BaseVisualization):
             for corpus_id in corpus_ids:
                 # Enable the corpus curves by default, but leave analytics off
                 self.visibility_settings[corpus_id] = True
+                # Initialize analytics settings to False so they don't show by default
+                self.visibility_settings[f"{corpus_id} (Average)"] = False
+                self.visibility_settings[f"{corpus_id} (Best Fit)"] = False
+                self.visibility_settings[f"{corpus_id} (Band)"] = False
         
         # New color mapping for corpus coloring
         self.corpus_colors = {}  # {corpus_id: QColor}
@@ -349,6 +361,7 @@ class FrequencyDistributionVisualization(BaseVisualization):
                         self.analytics_cache[corpus_id]["band"] = self.supplementary.compute_variability_band(corpus_id, self.file_reports)
                     if self.analytics_cache[corpus_id]["band"]:
                         data_sets[f"{corpus_id} (Band)"] = self.analytics_cache[corpus_id]["band"]
+                        print(f"[DEBUG] Added variability band for {corpus_id} to data_sets")
         return data_sets
 
     def update_plot(self):
@@ -387,18 +400,22 @@ class FrequencyDistributionVisualization(BaseVisualization):
                     # Make a more transparent version for the fill
                     fill_color = QColor(color)
                     fill_color.setAlpha(50)  # Set transparency
-                    pen_color = f"rgb({color.red()}, {color.green()}, {color.blue()})"
+                    pen_color = QColor(color)
+                    pen_color.setAlpha(200)  # Less transparent for the lines
                 else:
-                    pen_color = 'gray'
-                    fill_color = QColor(100, 100, 100, 50)
+                    pen_color = QColor(180, 180, 180, 200)  # Light gray with some transparency
+                    fill_color = QColor(150, 150, 150, 40)  # More transparent gray for fill
                 
-                # Plot min and max lines
-                min_curve = plot_item.plot(ranks, min_vals, pen=pen_color, name=f"{name} Min")
-                max_curve = plot_item.plot(ranks, max_vals, pen=pen_color, name=f"{name} Max")
+                # Plot min and max lines with slightly thinner pen
+                min_curve = plot_item.plot(ranks, min_vals, pen=pg.mkPen(color=pen_color, width=1), name=f"{name} Min")
+                max_curve = plot_item.plot(ranks, max_vals, pen=pg.mkPen(color=pen_color, width=1), name=f"{name} Max")
                 
-                # Add fill between
+                # Create fill between with proper z-order (ensure it's behind curves)
                 fill = pg.FillBetweenItem(min_curve, max_curve, brush=fill_color)
+                # Add fill to plot first (lower z-order)
                 plot_item.addItem(fill)
+                # Ensure fill is behind other curves
+                fill.setZValue(-10)
             else:
                 ranks, vals = data_item
                 
